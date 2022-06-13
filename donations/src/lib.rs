@@ -1,3 +1,34 @@
+// -------------------------------------------------------------------------------------------
+//                                    Donations Pallet
+// -------------------------------------------------------------------------------------------
+// This pallet calculates transaction fees using an off-chain worker in order
+// to send a percentage of them to Sequester, where they will be donated.
+//
+// This pallet uses an off-chain worker to calculate these fees in order to minimize
+// the on-chain computation to accomplish this task. An alternative technical implementation
+// would be to allocate funds to a "donations" account using a DealWithFees struct
+// passed into pallet_transaction_payment. However, this approach would use on-chain
+// computation for every transaction on the chain, which is unneccessary, since all
+// transaction fees donated will be going to a single location.
+//
+// In order to calculate txn fees, we use a multi step process:
+//
+// 1) An off-chain worker will run each block. Since fees are customizable on substrate chains,
+// each chain will need custom logic to sum the txn fees. Thus, each block, an offchain
+// worker will iterate through on-chain events and call the FeeCalculator logic passed
+// into the pallet, where txn fees will be parsed on a per-event basis. At the end of each block,
+// the sum of txn fees caculated will be added to an off-chain variable storing cumulative txn
+// fees on-chain
+//
+// 2) Every SendInterval blocks, the offchain worker will submit an unsigned transaction to
+// record the pending txn fees in on-chain storage, reset the off-chain cumulative fee variable,
+// and send a TxnFeeQueued event.
+//
+// 3) Every SpendPeriod (var for pallet_treasury) blocks, the treasury will call the SpendFunds
+// trait, which will check the on-chain storage for queued txn fees. If txn fees are queued,
+// they will be subsumed into a special Sequester account, and an XCM will be constructed sending
+// the queued funds to the Sequester chain.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -266,6 +297,8 @@ pub mod pallet {
             amount: BalanceOf<T>,
         ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
+
+            // TODO: calculate amount - fees
 
             log::info!("amount to send via xcm: {:?}", amount);
 
