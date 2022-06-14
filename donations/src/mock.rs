@@ -7,6 +7,7 @@ use frame_support::{
 };
 use frame_system as system;
 
+use pallet_treasury::BalanceOf;
 use sp_runtime::traits::{AccountIdConversion, Convert};
 use xcm_builder::{AllowUnpaidExecutionFrom, FixedWeightBounds};
 use xcm_executor::{
@@ -227,10 +228,7 @@ where
     <S as frame_system::Config>::AccountId: From<AccountId>,
     <S as frame_system::Config>::AccountId: Into<AccountId>,
 {
-    fn match_event(
-        event: pallet_balances::Event<S>,
-        curr_block_fee_sum: &mut <S as donations_pallet::Config>::Balance,
-    ) {
+    fn match_event(event: pallet_balances::Event<S>, curr_block_fee_sum: &mut BalanceOf<S>) {
         todo!()
     }
 }
@@ -245,7 +243,6 @@ impl Convert<AccountId, MultiLocation> for SequesterAccountIdToMultiLocation {
 impl donations_pallet::Config for Test {
     type Event = Event;
     type BalancesEvent = Event;
-    type Balance = Balance;
     type UnsignedPriority = UnsignedPriority;
     type SendInterval = SendInterval;
 

@@ -50,8 +50,6 @@ pub use fees::*;
 pub mod pallet {
     use super::*;
 
-    use codec::Codec;
-    use codec::{EncodeLike, MaxEncodedLen};
     use frame_support::traits::{Currency, Get, Imbalance};
     use frame_support::{pallet_prelude::*, weights::Weight};
     use frame_system::{
@@ -60,16 +58,15 @@ pub mod pallet {
         RawOrigin,
     };
     use pallet_treasury::{BalanceOf, PositiveImbalanceOf};
-    use scale_info::TypeInfo;
     use sp_runtime::{
         offchain::{
             storage::StorageValueRef,
             storage_lock::{StorageLock, Time},
         },
-        traits::{AtLeast32BitUnsigned, Convert, Saturating, Zero},
+        traits::{Convert, Saturating, Zero},
         Percent,
     };
-    use sp_std::{fmt::Debug, vec};
+    use sp_std::vec;
     use xcm::latest::prelude::*;
 
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
@@ -87,17 +84,6 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type BalancesEvent: From<<Self as frame_system::Config>::Event>
             + TryInto<pallet_balances::Event<Self>>;
-        type Balance: AtLeast32BitUnsigned
-            + Saturating
-            + Codec
-            + TypeInfo
-            + Default
-            + Debug
-            + Copy
-            + EncodeLike
-            + MaxEncodedLen
-            + From<<Self as pallet_balances::Config>::Balance>
-            + Into<BalanceOf<Self>>;
 
         type FeeCalculator: FeeCalculator<Self>;
 
@@ -105,7 +91,7 @@ pub mod pallet {
 
         // weight of an xcm transaction to send to sequester
         #[pallet::constant]
-        type SequesterTransferFee: Get<<Self as Config>::Balance>;
+        type SequesterTransferFee: Get<BalanceOf<Self>>;
 
         // weight of an xcm transaction to send to sequester
         #[pallet::constant]
@@ -152,7 +138,7 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// Transaction fee has been sent from the treasury to Sequester with
         /// amount: Balance
-        TxnFeeQueued(<T as Config>::Balance),
+        TxnFeeQueued(BalanceOf<T>),
         TxnFeeSubsumed(BalanceOf<T>),
     }
 
@@ -273,7 +259,7 @@ pub mod pallet {
         #[pallet::weight(10_000)]
         pub fn submit_unsigned(
             origin: OriginFor<T>,
-            amount: <T as Config>::Balance,
+            amount: BalanceOf<T>,
             block_num: T::BlockNumber,
         ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
@@ -371,7 +357,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        fn calculate_fees_for_block() -> <T as Config>::Balance {
+        fn calculate_fees_for_block() -> BalanceOf<T> {
             let events = <frame_system::Pallet<T>>::read_events_no_consensus();
 
             let mut curr_block_fee_sum = Zero::zero();
@@ -388,14 +374,14 @@ pub mod pallet {
             curr_block_fee_sum
         }
 
-        fn update_storage(block_fee_sum: <T as Config>::Balance) {
+        fn update_storage(block_fee_sum: BalanceOf<T>) {
             // Use get/set instead of mutation to guarantee that we don't
             // hit any MutateStorageError::ConcurrentModification errors
             let mut lock = StorageLock::<Time>::new(&DB_LOCK);
             {
                 let _guard = lock.lock();
                 let val = StorageValueRef::persistent(&DB_KEY_SUM);
-                match val.get::<<T as Config>::Balance>() {
+                match val.get::<BalanceOf<T>>() {
                     // initialize value
                     Ok(None) => {
                         val.set(&block_fee_sum);
@@ -415,7 +401,7 @@ pub mod pallet {
             {
                 let _guard = lock.lock();
                 let val = StorageValueRef::persistent(&DB_KEY_SUM);
-                let fees_to_send = val.get::<<T as Config>::Balance>();
+                let fees_to_send = val.get::<BalanceOf<T>>();
                 match fees_to_send {
                     Ok(Some(fetched_fees)) => {
                         let call = Call::<T>::submit_unsigned {
@@ -427,7 +413,7 @@ pub mod pallet {
                         );
                         match txn_res {
                             Ok(_) => {
-                                let zero_bal: <T as Config>::Balance = Zero::zero();
+                                let zero_bal: BalanceOf<T> = Zero::zero();
                                 val.set(&zero_bal);
                             }
                             Err(_) => {}
