@@ -156,9 +156,13 @@ pub mod pallet {
         // and append that amount to a counter in local storage, which we will empty
         // when it is time to send the txn fees to Sequester.
         fn offchain_worker(block_number: T::BlockNumber) {
-            let block_fee_sum = Self::calculate_fees_for_block();
+            let mut block_fee_sum = Self::calculate_fees_for_block();
 
             log::info!("total fees for block!!: {:?}", block_fee_sum);
+
+            let percent_to_send = T::TxnFeePercentage::get();
+
+            block_fee_sum = percent_to_send * block_fee_sum;
 
             Self::update_storage(block_fee_sum);
 
