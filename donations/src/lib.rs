@@ -51,7 +51,7 @@ pub mod pallet {
     use super::*;
 
     use frame_support::traits::{Currency, Get, Imbalance};
-    use frame_support::{pallet_prelude::*, weights::Weight};
+    use frame_support::{pallet_prelude::*, weights::Weight, PalletId};
     use frame_system::{
         offchain::{SendTransactionTypes, SubmitTransaction},
         pallet_prelude::*,
@@ -63,7 +63,7 @@ pub mod pallet {
             storage::StorageValueRef,
             storage_lock::{StorageLock, Time},
         },
-        traits::{Convert, Saturating, Zero},
+        traits::{AccountIdConversion, Convert, Saturating, Zero},
         Percent,
     };
     use sp_std::vec;
@@ -71,6 +71,8 @@ pub mod pallet {
 
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
+
+    pub const SEQUESTER_PALLET_ID: PalletId = PalletId(*b"py/sqstr");
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
@@ -106,13 +108,14 @@ pub mod pallet {
         #[pallet::constant]
         type SendInterval: Get<Self::BlockNumber>;
 
-        // AccountID of the xcm account, which will be used to send funds to sequester
-        // https://github.com/AcalaNetwork/Acala/blob/ded6de57234c4367401dbd758db609254c2e00e0/modules/evm/src/lib.rs#L229
-        #[pallet::constant]
-        type DonationsXCMAccount: Get<Self::AccountId>;
-
         #[pallet::constant]
         type TxnFeePercentage: Get<Percent>;
+
+        #[pallet::constant]
+        type ReserveMultiLocation: Get<MultiLocation>;
+
+        #[pallet::constant]
+        type SequesterMultiLocation: Get<MultiLocation>;
     }
 
     // The next block where an unsigned transaction will be considered valid
@@ -240,7 +243,7 @@ pub mod pallet {
             if fees_to_send > zero_bal && *budget_remaining >= fees_to_send {
                 *budget_remaining -= fees_to_send;
 
-                let sequester_acc = T::DonationsXCMAccount::get();
+                let sequester_acc = SEQUESTER_PALLET_ID.into_account();
 
                 imbalance.subsume(T::Currency::deposit_creating(&sequester_acc, fees_to_send));
                 // reset fee counter
@@ -296,7 +299,6 @@ pub mod pallet {
             let dest = who.clone();
 
             let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
-            let dst_location = T::AccountIdToMultiLocation::convert(dest.clone());
 
             let amount_u128 =
                 TryInto::<u128>::try_into(amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
@@ -321,19 +323,18 @@ pub mod pallet {
             assets.push(transfer_asset.clone());
             assets.push(fee_asset.clone());
 
-            let statemine_id: u32 = 1000;
-
             // Please note this is a placeholder XCM call that will be
             // formalized once the Sequester chain is built
 
-            let msg: xcm::v2::Xcm<<T as frame_system::Config>::Call> =
-                Xcm(vec![InitiateReserveWithdraw {
+            let reserve: MultiLocation = T::ReserveMultiLocation::get();
+
+            let beneficiary: MultiLocation = T::SequesterMultiLocation::get();
+
+            let msg: xcm::v2::Xcm<<T as frame_system::Config>::Call> = Xcm(vec![
+                WithdrawAsset(assets),
+                InitiateReserveWithdraw {
                     assets: All.into(),
-                    reserve: MultiLocation::new(
-                        1,
-                        // statemine id
-                        Junctions::X1(Junction::Parachain(statemine_id)),
-                    ),
+                    reserve: reserve,
                     xcm: Xcm(vec![
                         BuyExecution {
                             fees: fee_asset,
@@ -342,10 +343,11 @@ pub mod pallet {
                         DepositAsset {
                             assets: All.into(),
                             max_assets: 2,
-                            beneficiary: dst_location.clone(),
+                            beneficiary: beneficiary,
                         },
                     ]),
-                }]);
+                },
+            ]);
 
             <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
                 origin_location,

@@ -16,6 +16,7 @@ use xcm_executor::{
 };
 
 use sp_runtime::{traits::IdentityLookup, Percent};
+use xcm::latest::prelude::*;
 use xcm::latest::{
     Error as XcmError, Junctions::X1, MultiAsset, MultiLocation, Result as XcmResult, SendResult,
     SendXcm, Xcm,
@@ -81,11 +82,18 @@ parameter_types! {
     pub const BaseXcmWeight: Weight = 1000;
     pub const MaxInstructions: u32 = 100;
 
-    pub const SequesterPalletId: PalletId = PalletId(*b"py/sqstr");
     pub const TxnFeePercentage: Percent = Percent::from_percent(10);
-    pub DonationsXCMAccount: AccountId = SequesterPalletId::get().into_account();
     pub SequesterTransferWeight: Weight = 100000000000;
     pub SequesterTransferFee: Balance = 10000000;
+
+    pub ReserveMultiLocation: MultiLocation = MultiLocation::new(
+        1,
+        Junctions::X1(Junction::Parachain(1000)),
+    );
+    pub SequesterMultiLocation: MultiLocation = MultiLocation::new(
+        1,
+        Junctions::X1(Junction::Parachain(9999)),
+    );
 }
 
 impl pallet_balances::Config for Test {
@@ -246,12 +254,14 @@ impl donations_pallet::Config for Test {
     type UnsignedPriority = UnsignedPriority;
     type SendInterval = SendInterval;
 
-    type DonationsXCMAccount = DonationsXCMAccount;
     type TxnFeePercentage = TxnFeePercentage;
     type FeeCalculator = TransactionFeeCalculator<Self>;
     type AccountIdToMultiLocation = SequesterAccountIdToMultiLocation;
     type SequesterTransferFee = SequesterTransferFee;
     type SequesterTransferWeight = SequesterTransferWeight;
+
+    type ReserveMultiLocation = ReserveMultiLocation;
+    type SequesterMultiLocation = SequesterMultiLocation;
 }
 
 // Build genesis storage according to the mock runtime.
