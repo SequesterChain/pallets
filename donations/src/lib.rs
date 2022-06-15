@@ -151,6 +151,7 @@ pub mod pallet {
         XcmExecutionFailed,
         /// Errors should have helpful documentation associated with them.
         FeeConvertFailed,
+        InvalidXCMExtrinsicCall,
     }
 
     #[pallet::hooks]
@@ -219,7 +220,6 @@ pub mod pallet {
     }
 
     impl<T: Config> pallet_treasury::SpendFunds<T> for Pallet<T> {
-        // Using as resource: https://github.com/paritytech/substrate/blob/ded44948e2d5a398abcb4e342b0513cb690961bb/frame/bounties/src/lib.rs
         fn spend_funds(
             budget_remaining: &mut BalanceOf<T>,
             imbalance: &mut PositiveImbalanceOf<T>,
@@ -229,28 +229,26 @@ pub mod pallet {
             log::info!("spend_funds triggered!");
             let fees_to_send = Self::fees_to_send();
 
-            // TODO: Apply percentage
-
-            let zero_bal: BalanceOf<T> = Zero::zero();
-
             log::info!(
                 "fees_to_send: {:?} and budget remaining in treasury : {:?}",
                 fees_to_send,
                 *budget_remaining,
             );
 
+            let transfer_fee = T::SequesterTransferFee::get();
+
             // valid fees to send
-            if fees_to_send > zero_bal && *budget_remaining >= fees_to_send {
+            if fees_to_send > transfer_fee && *budget_remaining >= fees_to_send {
                 *budget_remaining -= fees_to_send;
 
                 let sequester_acc = SEQUESTER_PALLET_ID.into_account();
 
                 imbalance.subsume(T::Currency::deposit_creating(&sequester_acc, fees_to_send));
                 // reset fee counter
+                let zero_bal: BalanceOf<T> = Zero::zero();
                 FeesToSend::<T>::set(zero_bal);
                 Self::deposit_event(Event::TxnFeeSubsumed(fees_to_send));
 
-                // xcm call via reserve_transfer_assets (https://github.com/paritytech/polkadot/blob/02d040ebd271a4b395b79277640878d4c768fb47/xcm/pallet-xcm/src/lib.rs#L536)
                 let _ = Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
                     fees_to_send,
@@ -291,29 +289,29 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
-            // TODO: calculate amount - fees
-
-            log::info!("amount to send via xcm: {:?}", amount);
-
-            // send to same account on Sequester
-            let dest = who.clone();
-
-            let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
-
-            let amount_u128 =
-                TryInto::<u128>::try_into(amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
-
-            let weight = T::SequesterTransferWeight::get();
             let fee = T::SequesterTransferFee::get();
+
+            frame_support::ensure!(amount >= fee, Error::<T>::InvalidXCMExtrinsicCall);
 
             let fee_u128 =
                 TryInto::<u128>::try_into(fee).map_err(|_| Error::<T>::FeeConvertFailed)?;
+
+            let send_amount = amount.saturating_sub(fee);
+
+            log::info!("amount to send via xcm: {:?}", amount);
+
+            let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
+
+            let send_amount_u128 =
+                TryInto::<u128>::try_into(send_amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
+
+            let weight = T::SequesterTransferWeight::get();
 
             let mut assets = MultiAssets::new();
 
             let transfer_asset = MultiAsset {
                 id: AssetId::Concrete(MultiLocation::new(1, Junctions::Here)),
-                fun: Fungibility::Fungible(amount_u128),
+                fun: Fungibility::Fungible(send_amount_u128),
             };
 
             let fee_asset = MultiAsset {
