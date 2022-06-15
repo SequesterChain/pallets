@@ -28,7 +28,7 @@
 // trait, which will check the on-chain storage for queued txn fees. If txn fees are queued,
 // they will be subsumed into a special Sequester account, and an XCM will be constructed sending
 // the queued funds to the Sequester chain.
-
+#![feature(more_qualified_paths)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;

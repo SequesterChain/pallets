@@ -1,4 +1,5 @@
 use crate::{self as donations_pallet, FeeCalculator};
+
 use frame_support::{
     parameter_types,
     traits::{ConstU32, ConstU64, EnsureOrigin, Everything, OriginTrait},
@@ -7,7 +8,13 @@ use frame_support::{
 };
 use frame_system as system;
 
-use sp_runtime::traits::{AccountIdConversion, Convert};
+use sp_runtime::{
+    offchain::{
+        testing::{self},
+        OffchainDbExt, OffchainWorkerExt, TransactionPoolExt,
+    },
+    traits::{AccountIdConversion, Convert, Saturating},
+};
 use xcm_builder::{AllowUnpaidExecutionFrom, FixedWeightBounds};
 use xcm_executor::{
     traits::{InvertLocation, TransactAsset, WeightTrader},
@@ -16,8 +23,7 @@ use xcm_executor::{
 
 use sp_runtime::{traits::IdentityLookup, Percent};
 use xcm::latest::{
-    Error as XcmError, Junctions::X1, MultiAsset, MultiLocation, Result as XcmResult, SendResult,
-    SendXcm, Xcm,
+    Error as XcmError, MultiAsset, MultiLocation, Result as XcmResult, SendResult, SendXcm, Xcm,
 };
 
 type AccountId = u64;
@@ -231,7 +237,21 @@ where
         event: pallet_balances::Event<S>,
         curr_block_fee_sum: &mut <S as donations_pallet::Config>::Balance,
     ) {
-        todo!()
+        let treasury_id: AccountId = TreasuryPalletId::get().into_account();
+        match event {
+            <pallet_balances::Event<S>>::Deposit { who, amount } => {
+                // If amount is deposited back into the account that paid for the transaction
+                // fees during the same transaction, then deduct it from the txn fee counter as
+                // a refund
+
+                log::info!("who: {:?} treasury account: {:?}", who, treasury_id);
+                if who == treasury_id.into() {
+                    *curr_block_fee_sum = (*curr_block_fee_sum)
+                        .saturating_add(<S as donations_pallet::Config>::Balance::from(amount));
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -259,8 +279,37 @@ impl donations_pallet::Config for Test {
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    system::GenesisConfig::default()
+    let mut t = frame_system::GenesisConfig::default()
         .build_storage::<Test>()
-        .unwrap()
-        .into()
+        .unwrap();
+    pallet_balances::GenesisConfig::<Test> {
+        balances: vec![(1, 100), (2, 200), (3, 300)],
+    }
+    .assimilate_storage(&mut t)
+    .unwrap();
+
+    let mut ext = sp_io::TestExternalities::new(t);
+    ext.execute_with(|| System::set_block_number(1));
+    ext
+}
+
+pub fn new_test_ext_with_offchain_worker() -> (sp_io::TestExternalities, testing::TestOffchainExt) {
+    let (offchain, _offchain_state) = testing::TestOffchainExt::new();
+    let (pool, _pool_state) = testing::TestTransactionPoolExt::new();
+
+    let mut t = frame_system::GenesisConfig::default()
+        .build_storage::<Test>()
+        .unwrap();
+    pallet_balances::GenesisConfig::<Test> {
+        balances: vec![(1, 100), (2, 200), (3, 300)],
+    }
+    .assimilate_storage(&mut t)
+    .unwrap();
+
+    let mut ext = sp_io::TestExternalities::new(t);
+
+    ext.register_extension(OffchainWorkerExt::new(offchain.clone()));
+    ext.register_extension(OffchainDbExt::new(offchain.clone()));
+    ext.register_extension(TransactionPoolExt::new(pool));
+    (ext, offchain)
 }
