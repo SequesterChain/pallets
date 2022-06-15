@@ -3,6 +3,7 @@ use frame_support::assert_ok;
 use frame_support::traits::OffchainWorker;
 use frame_support::traits::{OnFinalize, OnInitialize};
 
+use pallet_treasury::BalanceOf;
 use sp_runtime::offchain::storage::StorageValue;
 
 const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
@@ -34,7 +35,7 @@ fn test_transfer_txn_updates_offchain_variable() {
         run_to_block(2);
 
         let val = StorageValue::persistent(&DB_KEY_SUM);
-        let sum = val.get::<<Test as crate::Config>::Balance>();
+        let sum = val.get::<BalanceOf<Test>>();
 
         assert_eq!(sum, Ok(Some(16_u64)));
     })

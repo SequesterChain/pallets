@@ -8,6 +8,7 @@ use frame_support::{
 };
 use frame_system as system;
 
+use pallet_treasury::BalanceOf;
 use sp_runtime::{
     offchain::{
         testing::{self},
@@ -22,6 +23,7 @@ use xcm_executor::{
 };
 
 use sp_runtime::{traits::IdentityLookup, Percent};
+use xcm::latest::prelude::*;
 use xcm::latest::{
     Error as XcmError, MultiAsset, MultiLocation, Result as XcmResult, SendResult, SendXcm, Xcm,
 };
@@ -86,11 +88,18 @@ parameter_types! {
     pub const BaseXcmWeight: Weight = 1000;
     pub const MaxInstructions: u32 = 100;
 
-    pub const SequesterPalletId: PalletId = PalletId(*b"py/sqstr");
     pub const TxnFeePercentage: Percent = Percent::from_percent(10);
-    pub DonationsXCMAccount: AccountId = SequesterPalletId::get().into_account();
     pub SequesterTransferWeight: Weight = 100000000000;
     pub SequesterTransferFee: Balance = 10000000;
+
+    pub ReserveMultiLocation: MultiLocation = MultiLocation::new(
+        1,
+        Junctions::X1(Junction::Parachain(1000)),
+    );
+    pub SequesterMultiLocation: MultiLocation = MultiLocation::new(
+        1,
+        Junctions::X1(Junction::Parachain(9999)),
+    );
 }
 
 impl pallet_balances::Config for Test {
@@ -233,10 +242,7 @@ where
     <S as frame_system::Config>::AccountId: From<AccountId>,
     <S as frame_system::Config>::AccountId: Into<AccountId>,
 {
-    fn match_event(
-        event: pallet_balances::Event<S>,
-        curr_block_fee_sum: &mut <S as donations_pallet::Config>::Balance,
-    ) {
+    fn match_event(event: pallet_balances::Event<S>, curr_block_fee_sum: &mut BalanceOf<S>) {
         let treasury_id: AccountId = TreasuryPalletId::get().into_account();
         match event {
             <pallet_balances::Event<S>>::Deposit { who, amount } => {
@@ -246,8 +252,7 @@ where
 
                 log::info!("who: {:?} treasury account: {:?}", who, treasury_id);
                 if who == treasury_id.into() {
-                    *curr_block_fee_sum = (*curr_block_fee_sum)
-                        .saturating_add(<S as donations_pallet::Config>::Balance::from(amount));
+                    *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(amount);
                 }
             }
             _ => {}
@@ -265,16 +270,17 @@ impl Convert<AccountId, MultiLocation> for SequesterAccountIdToMultiLocation {
 impl donations_pallet::Config for Test {
     type Event = Event;
     type BalancesEvent = Event;
-    type Balance = Balance;
     type UnsignedPriority = UnsignedPriority;
     type SendInterval = SendInterval;
 
-    type DonationsXCMAccount = DonationsXCMAccount;
     type TxnFeePercentage = TxnFeePercentage;
     type FeeCalculator = TransactionFeeCalculator<Self>;
     type AccountIdToMultiLocation = SequesterAccountIdToMultiLocation;
     type SequesterTransferFee = SequesterTransferFee;
     type SequesterTransferWeight = SequesterTransferWeight;
+
+    type ReserveMultiLocation = ReserveMultiLocation;
+    type SequesterMultiLocation = SequesterMultiLocation;
 }
 
 // Build genesis storage according to the mock runtime.
