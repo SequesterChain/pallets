@@ -2,6 +2,7 @@
 use crate::Config;
 use frame_system::EventRecord;
 use pallet_treasury::BalanceOf;
+use sp_std::vec::Vec;
 
 pub trait FeeCalculator<T: Config> {
     fn match_events(
