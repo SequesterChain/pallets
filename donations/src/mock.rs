@@ -12,6 +12,7 @@ use frame_support::{
 };
 use frame_system as system;
 use std::cell::RefCell;
+use system::EventRecord;
 
 use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
 use pallet_treasury::BalanceOf;
@@ -304,9 +305,13 @@ where
         >>::Balance,
     >,
 {
-    fn match_event(event: pallet_balances::Event<S>, curr_block_fee_sum: &mut BalanceOf<S>) {
+    fn match_events(
+        _events: Vec<
+            EventRecord<<S as frame_system::Config>::Event, <S as frame_system::Config>::Hash>,
+        >,
+    ) -> BalanceOf<S> {
         let fee = FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone());
-        *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(fee.into());
+        fee.into()
     }
 }
 

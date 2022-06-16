@@ -54,6 +54,8 @@ fn test_transfer_txn_updates_offchain_variable() {
         assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
         assert_eq!(FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone()), TXN_FEE);
 
+        run_to_block(2);
+
         let new_bal_1 = ACC_BAL_1 - TXN_AMOUNT - TXN_FEE;
         let new_bal_2 = ACC_BAL_2 + TXN_AMOUNT;
 
@@ -63,6 +65,9 @@ fn test_transfer_txn_updates_offchain_variable() {
         let val = StorageValue::persistent(&DB_KEY_SUM);
         let sum = val.get::<BalanceOf<Test>>();
 
-        assert_eq!(sum, Ok(Some(TXN_FEE)));
+        // multiply by 10% to get "fees_to_send"
+        let fees_to_send = TXN_FEE as f64 * 0.1 as f64;
+
+        assert_eq!(sum, Ok(Some(fees_to_send as u64)));
     })
 }
