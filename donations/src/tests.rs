@@ -1,11 +1,13 @@
 use core::marker::PhantomData;
 
+use crate as donations;
 use crate::mock::*;
+
 use frame_support::assert_ok;
 use frame_support::traits::OffchainWorker;
 use frame_support::traits::{OnFinalize, OnInitialize};
 use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
-use sp_runtime::traits::SignedExtension;
+use sp_runtime::traits::{AccountIdConversion, SignedExtension};
 
 use pallet_treasury::BalanceOf;
 use sp_runtime::offchain::storage::StorageValue;
@@ -50,6 +52,7 @@ fn test_transfer_txn_updates_offchain_variable() {
         let TXN_AMOUNT = 50;
 
         assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
+        assert_eq!(FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone()), TXN_FEE);
 
         let new_bal_1 = ACC_BAL_1 - TXN_AMOUNT - TXN_FEE;
         let new_bal_2 = ACC_BAL_2 + TXN_AMOUNT;
@@ -57,11 +60,9 @@ fn test_transfer_txn_updates_offchain_variable() {
         assert_eq!(Balances::free_balance(FROM_ACCOUNT), new_bal_1);
         assert_eq!(Balances::free_balance(TO_ACCOUNT), new_bal_2);
 
-        run_to_block(5);
-
         let val = StorageValue::persistent(&DB_KEY_SUM);
         let sum = val.get::<BalanceOf<Test>>();
 
-        assert_eq!(sum, Ok(Some(16_u64)));
+        assert_eq!(sum, Ok(Some(TXN_FEE)));
     })
 }

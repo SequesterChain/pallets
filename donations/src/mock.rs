@@ -1,5 +1,6 @@
 use crate::{self as donations_pallet, FeeCalculator, Pallet};
 
+use core::ops::AddAssign;
 use frame_support::{
     parameter_types,
     traits::{
@@ -10,6 +11,7 @@ use frame_support::{
     PalletId,
 };
 use frame_system as system;
+use std::cell::RefCell;
 
 use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
 use pallet_treasury::BalanceOf;
@@ -291,25 +293,20 @@ where
     S: pallet_balances::Config + donations_pallet::Config,
     <S as frame_system::Config>::AccountId: From<AccountId>,
     <S as frame_system::Config>::AccountId: Into<AccountId>,
-    BalanceOf<S>: From<<S as pallet_balances::Config>::Balance>,
-    BalanceOf<S>: Into<<S as pallet_balances::Config>::Balance>,
+    u64: From<
+        <<S as pallet_treasury::Config>::Currency as Currency<
+            <S as frame_system::Config>::AccountId,
+        >>::Balance,
+    >,
+    u64: Into<
+        <<S as pallet_treasury::Config>::Currency as Currency<
+            <S as frame_system::Config>::AccountId,
+        >>::Balance,
+    >,
 {
     fn match_event(event: pallet_balances::Event<S>, curr_block_fee_sum: &mut BalanceOf<S>) {
-        log::info!("event!: {:?}", event);
-        let treasury_id: AccountId = TreasuryPalletId::get().into_account();
-        match event {
-            <pallet_balances::Event<S>>::Deposit { who, amount } => {
-                // If amount is deposited back into the account that paid for the transaction
-                // fees during the same transaction, then deduct it from the txn fee counter as
-                // a refund
-
-                log::info!("who: {:?} treasury account: {:?}", who, treasury_id);
-                if who == treasury_id.into() {
-                    *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(amount.into());
-                }
-            }
-            _ => {}
-        }
+        let fee = FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone());
+        *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(fee.into());
     }
 }
 
@@ -317,6 +314,7 @@ pub struct DealWithFees<R>(sp_std::marker::PhantomData<R>);
 impl<R> OnUnbalanced<NegativeImbalance<R>> for DealWithFees<R>
 where
     R: pallet_balances::Config + pallet_treasury::Config,
+    u64: AddAssign<<R as pallet_balances::Config>::Balance>,
     pallet_treasury::Pallet<R>: OnUnbalanced<NegativeImbalance<R>>,
     // <R as frame_system::Config>::AccountId: From<primitives::v2::AccountId>,
     // <R as frame_system::Config>::AccountId: Into<primitives::v2::AccountId>,
@@ -324,15 +322,10 @@ where
 {
     fn on_unbalanceds<B>(mut fees_then_tips: impl Iterator<Item = NegativeImbalance<R>>) {
         if let Some(fees) = fees_then_tips.next() {
-            log::info!("There was an inbalance!");
-            // for fees, 80% to treasury, 20% to author
-            let mut split = fees.ration(100, 0);
+            FEE_UNBALANCED_AMOUNT.with(|a| *a.borrow_mut() += fees.peek());
             if let Some(tips) = fees_then_tips.next() {
-                // for tips, if any, 100% to author
-                tips.merge_into(&mut split.1);
+                TIP_UNBALANCED_AMOUNT.with(|a| *a.borrow_mut() += tips.peek());
             }
-            use pallet_treasury::Pallet as Treasury;
-            <Treasury<R> as OnUnbalanced<_>>::on_unbalanced(split.0);
         }
     }
 }
@@ -358,6 +351,11 @@ impl donations_pallet::Config for Test {
 
     type ReserveMultiLocation = ReserveMultiLocation;
     type SequesterMultiLocation = SequesterMultiLocation;
+}
+
+thread_local! {
+    pub static TIP_UNBALANCED_AMOUNT: RefCell<u64> = RefCell::new(0);
+    pub static FEE_UNBALANCED_AMOUNT: RefCell<u64> = RefCell::new(0);
 }
 
 // Build genesis storage according to the mock runtime.
