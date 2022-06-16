@@ -1,13 +1,17 @@
-use crate::{self as donations_pallet, FeeCalculator};
+use crate::{self as donations_pallet, FeeCalculator, Pallet};
 
 use frame_support::{
     parameter_types,
-    traits::{ConstU32, ConstU64, EnsureOrigin, Everything, OriginTrait},
-    weights::Weight,
+    traits::{
+        ConstU32, ConstU64, ConstU8, Currency, EnsureOrigin, Everything, Imbalance, OnUnbalanced,
+        OriginTrait,
+    },
+    weights::{DispatchInfo, IdentityFee, PostDispatchInfo, Weight},
     PalletId,
 };
 use frame_system as system;
 
+use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
 use pallet_treasury::BalanceOf;
 use sp_runtime::{
     offchain::{
@@ -36,6 +40,39 @@ type Balance = u64;
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
 
+pub type NegativeImbalance<T> = <pallet_balances::Pallet<T> as Currency<
+    <T as frame_system::Config>::AccountId,
+>>::NegativeImbalance;
+
+pub const CALL: &<Test as frame_system::Config>::Call =
+    &Call::Balances(pallet_balances::Call::transfer { dest: 2, value: 50 });
+
+/// create a transaction info struct from weight. Handy to avoid building the whole struct.
+pub fn info_from_weight(w: Weight) -> DispatchInfo {
+    DispatchInfo {
+        weight: w,
+        ..Default::default()
+    }
+}
+
+pub fn default_post_info() -> PostDispatchInfo {
+    PostDispatchInfo {
+        actual_weight: None,
+        pays_fee: Default::default(),
+    }
+}
+
+pub const MOCK_WEIGHT: Weight = 600_000_000;
+
+pub const ACC_BAL_1: Balance = 100000000000000;
+pub const ACC_BAL_2: Balance = 200000000000000;
+pub const ACC_BAL_3: Balance = 300000000000000;
+
+pub const TXN_FEE: Balance = 725000010;
+
+pub const FROM_ACCOUNT: u64 = 1;
+pub const TO_ACCOUNT: u64 = 2;
+
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
     pub enum Test where
@@ -48,6 +85,7 @@ frame_support::construct_runtime!(
         PolkadotXcm: pallet_xcm::{Pallet, Call, Event<T>, Origin},
         Treasury: pallet_treasury::{Pallet, Call, Storage, Event<T>},
         Donations: donations_pallet::{Pallet, Call, Storage, Event<T>},
+        TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
     }
 );
 
@@ -111,7 +149,7 @@ impl pallet_balances::Config for Test {
     type DustRemoval = ();
     type ExistentialDeposit = ConstU64<10>;
     type AccountStore = System;
-    type WeightInfo = ();
+    type WeightInfo = pallet_balances::weights::SubstrateWeight<Test>;
 }
 
 pub type Extrinsic = sp_runtime::testing::TestXt<Call, ()>;
@@ -235,14 +273,29 @@ impl pallet_xcm::Config for Test {
     type AdvertisedXcmVersion = pallet_xcm::CurrentXcmVersion;
 }
 
+parameter_types! {
+    pub const TransactionByteFee: Balance = 1;
+}
+
+impl pallet_transaction_payment::Config for Test {
+    type OnChargeTransaction = CurrencyAdapter<Balances, DealWithFees<Self>>;
+    type TransactionByteFee = TransactionByteFee;
+    type OperationalFeeMultiplier = ConstU8<5>;
+    type WeightToFee = IdentityFee<Balance>;
+    type FeeMultiplierUpdate = ();
+}
+
 pub struct TransactionFeeCalculator<S>(sp_std::marker::PhantomData<S>);
 impl<S> FeeCalculator<S> for TransactionFeeCalculator<S>
 where
     S: pallet_balances::Config + donations_pallet::Config,
     <S as frame_system::Config>::AccountId: From<AccountId>,
     <S as frame_system::Config>::AccountId: Into<AccountId>,
+    BalanceOf<S>: From<<S as pallet_balances::Config>::Balance>,
+    BalanceOf<S>: Into<<S as pallet_balances::Config>::Balance>,
 {
     fn match_event(event: pallet_balances::Event<S>, curr_block_fee_sum: &mut BalanceOf<S>) {
+        log::info!("event!: {:?}", event);
         let treasury_id: AccountId = TreasuryPalletId::get().into_account();
         match event {
             <pallet_balances::Event<S>>::Deposit { who, amount } => {
@@ -252,10 +305,34 @@ where
 
                 log::info!("who: {:?} treasury account: {:?}", who, treasury_id);
                 if who == treasury_id.into() {
-                    *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(amount);
+                    *curr_block_fee_sum = (*curr_block_fee_sum).saturating_add(amount.into());
                 }
             }
             _ => {}
+        }
+    }
+}
+
+pub struct DealWithFees<R>(sp_std::marker::PhantomData<R>);
+impl<R> OnUnbalanced<NegativeImbalance<R>> for DealWithFees<R>
+where
+    R: pallet_balances::Config + pallet_treasury::Config,
+    pallet_treasury::Pallet<R>: OnUnbalanced<NegativeImbalance<R>>,
+    // <R as frame_system::Config>::AccountId: From<primitives::v2::AccountId>,
+    // <R as frame_system::Config>::AccountId: Into<primitives::v2::AccountId>,
+    <R as frame_system::Config>::Event: From<pallet_balances::Event<R>>,
+{
+    fn on_unbalanceds<B>(mut fees_then_tips: impl Iterator<Item = NegativeImbalance<R>>) {
+        if let Some(fees) = fees_then_tips.next() {
+            log::info!("There was an inbalance!");
+            // for fees, 80% to treasury, 20% to author
+            let mut split = fees.ration(100, 0);
+            if let Some(tips) = fees_then_tips.next() {
+                // for tips, if any, 100% to author
+                tips.merge_into(&mut split.1);
+            }
+            use pallet_treasury::Pallet as Treasury;
+            <Treasury<R> as OnUnbalanced<_>>::on_unbalanced(split.0);
         }
     }
 }
@@ -307,7 +384,7 @@ pub fn new_test_ext_with_offchain_worker() -> (sp_io::TestExternalities, testing
         .build_storage::<Test>()
         .unwrap();
     pallet_balances::GenesisConfig::<Test> {
-        balances: vec![(1, 100), (2, 200), (3, 300)],
+        balances: vec![(1, ACC_BAL_1), (2, ACC_BAL_2), (3, ACC_BAL_3)],
     }
     .assimilate_storage(&mut t)
     .unwrap();

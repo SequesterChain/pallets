@@ -1,7 +1,11 @@
+use core::marker::PhantomData;
+
 use crate::mock::*;
 use frame_support::assert_ok;
 use frame_support::traits::OffchainWorker;
 use frame_support::traits::{OnFinalize, OnInitialize};
+use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
+use sp_runtime::traits::SignedExtension;
 
 use pallet_treasury::BalanceOf;
 use sp_runtime::offchain::storage::StorageValue;
@@ -24,15 +28,36 @@ fn test_transfer_txn_updates_offchain_variable() {
     let (t, _) = &mut new_test_ext_with_offchain_worker();
 
     t.execute_with(|| {
-        assert_eq!(Balances::free_balance(1), 100);
-        assert_eq!(Balances::free_balance(2), 200);
+        assert_eq!(Balances::free_balance(1), ACC_BAL_1);
+        assert_eq!(Balances::free_balance(2), ACC_BAL_2);
 
-        assert_ok!(Balances::transfer(Origin::signed(1), 2, 50));
+        let len = 10;
+        let dispatch_info = info_from_weight(MOCK_WEIGHT);
 
-        assert_eq!(Balances::free_balance(1), 50);
-        assert_eq!(Balances::free_balance(2), 250);
+        let pre = ChargeTransactionPayment::<Test>::from(0u64.into())
+            .pre_dispatch(&FROM_ACCOUNT, CALL, &dispatch_info, len)
+            .unwrap();
 
-        run_to_block(2);
+        assert!(ChargeTransactionPayment::<Test>::post_dispatch(
+            Some(pre),
+            &dispatch_info,
+            &default_post_info(),
+            len,
+            &Ok(())
+        )
+        .is_ok());
+
+        let TXN_AMOUNT = 50;
+
+        assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
+
+        let new_bal_1 = ACC_BAL_1 - TXN_AMOUNT - TXN_FEE;
+        let new_bal_2 = ACC_BAL_2 + TXN_AMOUNT;
+
+        assert_eq!(Balances::free_balance(FROM_ACCOUNT), new_bal_1);
+        assert_eq!(Balances::free_balance(TO_ACCOUNT), new_bal_2);
+
+        run_to_block(5);
 
         let val = StorageValue::persistent(&DB_KEY_SUM);
         let sum = val.get::<BalanceOf<Test>>();

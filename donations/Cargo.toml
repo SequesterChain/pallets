@@ -30,8 +30,8 @@ xcm = { default-features = false, git = "https://github.com/paritytech/polkadot"
 xcm-executor = { default-features = false, git = "https://github.com/paritytech/polkadot", branch = "release-v0.9.18" }
 xcm-builder = { default-features = false, git = "https://github.com/paritytech/polkadot", branch = "release-v0.9.18" }
 
-
 [dev-dependencies]
+pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.18" }
 sp-core = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.18" }
 sp-io = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.18" }
 
