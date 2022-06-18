@@ -1,13 +1,11 @@
-use core::marker::PhantomData;
-
-use crate as donations;
-use crate::mock::*;
+use super::*;
+use crate::{mock::*, SEQUESTER_PALLET_ID};
 
 use frame_support::assert_ok;
 use frame_support::traits::OffchainWorker;
-use frame_support::traits::{OnFinalize, OnInitialize};
-use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
-use sp_runtime::traits::{AccountIdConversion, SignedExtension};
+use frame_support::traits::{Currency, OnFinalize, OnInitialize};
+use pallet_transaction_payment::ChargeTransactionPayment;
+use sp_runtime::traits::SignedExtension;
 
 use pallet_treasury::BalanceOf;
 use sp_runtime::offchain::storage::StorageValue;
@@ -19,9 +17,10 @@ fn run_to_block(n: u64) {
         Donations::on_finalize(System::block_number());
         Donations::offchain_worker(System::block_number());
         System::on_finalize(System::block_number());
-        System::set_block_number(System::block_number() + 1);
         System::on_initialize(System::block_number());
         Donations::on_initialize(System::block_number());
+        Treasury::on_initialize(System::block_number());
+        System::set_block_number(System::block_number() + 1);
     }
 }
 
@@ -49,8 +48,6 @@ fn test_transfer_txn_updates_offchain_variable() {
         )
         .is_ok());
 
-        let TXN_AMOUNT = 50;
-
         assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
         assert_eq!(FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone()), TXN_FEE);
 
@@ -66,8 +63,47 @@ fn test_transfer_txn_updates_offchain_variable() {
         let sum = val.get::<BalanceOf<Test>>();
 
         // multiply by 10% to get "fees_to_send"
-        let fees_to_send = TXN_FEE as f64 * 0.1 as f64;
+        let fees_to_send = TXN_FEE as f64 * SEND_PERCENTAGE;
 
         assert_eq!(sum, Ok(Some(fees_to_send as u64)));
+    })
+}
+
+#[test]
+fn test_submit_unsigned_updates_on_chain_vars() {
+    let (t, _) = &mut new_test_ext_with_offchain_worker();
+    t.execute_with(|| {
+        assert_eq!(Donations::next_unsigned_at(), 0);
+        assert_eq!(Donations::fees_to_send(), 0);
+
+        let collected_fees = (TXN_FEE as f64 * SEND_PERCENTAGE) as u64;
+
+        let _ = Donations::submit_unsigned(Origin::none(), collected_fees, 1);
+
+        run_to_block(2);
+
+        // make sure on chain vars are properly updated
+        assert_eq!(Donations::next_unsigned_at(), 1 + SEND_INTERVAL);
+        assert_eq!(Donations::fees_to_send(), collected_fees);
+
+        let seq_account_id = Donations::sequester_account_id();
+
+        Balances::make_free_balance_be(&Treasury::account_id(), collected_fees + 10);
+        Balances::make_free_balance_be(&seq_account_id, 0);
+
+        // collected_fees + 10 to set Treasury::pot equal to collected_fees
+        assert_eq!(
+            Balances::free_balance(&Treasury::account_id()),
+            collected_fees + 10
+        );
+        assert_eq!(Treasury::pot(), collected_fees);
+        assert_eq!(Balances::free_balance(&seq_account_id), 0);
+
+        // make sure treasury spend_funds is correctly called and desired effect happens
+        run_to_block(4);
+
+        assert_eq!(Treasury::pot(), 0);
+
+        assert_eq!(Balances::free_balance(&seq_account_id), collected_fees);
     })
 }

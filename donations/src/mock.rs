@@ -14,14 +14,14 @@ use frame_system as system;
 use std::cell::RefCell;
 use system::EventRecord;
 
-use pallet_transaction_payment::{ChargeTransactionPayment, CurrencyAdapter, Multiplier};
+use pallet_transaction_payment::CurrencyAdapter;
 use pallet_treasury::BalanceOf;
 use sp_runtime::{
     offchain::{
         testing::{self},
         OffchainDbExt, OffchainWorkerExt, TransactionPoolExt,
     },
-    traits::{AccountIdConversion, Convert, Saturating},
+    traits::Convert,
 };
 use xcm_builder::{AllowUnpaidExecutionFrom, FixedWeightBounds};
 use xcm_executor::{
@@ -34,6 +34,7 @@ use xcm::latest::prelude::*;
 use xcm::latest::{
     Error as XcmError, MultiAsset, MultiLocation, Result as XcmResult, SendResult, SendXcm, Xcm,
 };
+use xcm_builder::{LocationInverter, SignedToAccountId32};
 
 type AccountId = u64;
 type AccountIndex = u32;
@@ -72,9 +73,13 @@ pub const ACC_BAL_2: Balance = 200000000000000;
 pub const ACC_BAL_3: Balance = 300000000000000;
 
 pub const TXN_FEE: Balance = 725000010;
+pub const TXN_AMOUNT: Balance = 50;
+pub const SEND_PERCENTAGE: f64 = 0.1;
 
 pub const FROM_ACCOUNT: u64 = 1;
 pub const TO_ACCOUNT: u64 = 2;
+
+pub const SEND_INTERVAL: BlockNumber = 9;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
@@ -165,6 +170,10 @@ where
     type Extrinsic = Extrinsic;
 }
 
+parameter_types! {
+    pub SpendInterval: BlockNumber = 2;
+}
+
 impl pallet_treasury::Config for Test {
     type Currency = pallet_balances::Pallet<Test>;
     type ApproveOrigin = frame_system::EnsureRoot<AccountId>;
@@ -174,11 +183,11 @@ impl pallet_treasury::Config for Test {
     type ProposalBond = ();
     type ProposalBondMinimum = ();
     type ProposalBondMaximum = ();
-    type SpendPeriod = ();
+    type SpendPeriod = SpendInterval;
     type Burn = ();
     type BurnDestination = ();
     type PalletId = TreasuryPalletId;
-    type SpendFunds = ();
+    type SpendFunds = Donations;
     type MaxApprovals = MaxApprovals;
     type WeightInfo = ();
 }
@@ -194,17 +203,6 @@ impl<Origin: OriginTrait> EnsureOrigin<Origin> for ConvertOriginToLocal {
     #[cfg(feature = "runtime-benchmarks")]
     fn successful_origin() -> Origin {
         Origin::root()
-    }
-}
-
-pub struct InvertNothing;
-impl InvertLocation for InvertNothing {
-    fn invert_location(_: &MultiLocation) -> sp_std::result::Result<MultiLocation, ()> {
-        Ok(MultiLocation::here())
-    }
-
-    fn ancestry() -> MultiLocation {
-        todo!()
     }
 }
 
@@ -247,7 +245,7 @@ impl xcm_executor::Config for XcmConfig {
     type OriginConverter = pallet_xcm::XcmPassthrough<Origin>;
     type IsReserve = ();
     type IsTeleporter = ();
-    type LocationInverter = InvertNothing;
+    type LocationInverter = LocationInverter<Ancestry>;
     type Barrier = Barrier;
     type Weigher = FixedWeightBounds<BaseXcmWeight, Call, MaxInstructions>;
     type Trader = DummyWeightTrader;
@@ -255,6 +253,10 @@ impl xcm_executor::Config for XcmConfig {
     type SubscriptionService = ();
     type AssetTrap = PolkadotXcm;
     type AssetClaims = PolkadotXcm;
+}
+
+parameter_types! {
+    pub Ancestry: MultiLocation = Here.into();
 }
 
 impl pallet_xcm::Config for Test {
@@ -269,7 +271,7 @@ impl pallet_xcm::Config for Test {
     type XcmTeleportFilter = frame_support::traits::Everything;
     type XcmReserveTransferFilter = frame_support::traits::Everything;
     type Weigher = xcm_builder::FixedWeightBounds<BaseXcmWeight, Call, MaxInstructions>;
-    type LocationInverter = InvertNothing;
+    type LocationInverter = LocationInverter<Ancestry>;
     type Origin = Origin;
     type Call = Call;
     const VERSION_DISCOVERY_QUEUE_SIZE: u32 = 100;
@@ -335,13 +337,6 @@ where
     }
 }
 
-pub struct SequesterAccountIdToMultiLocation;
-impl Convert<AccountId, MultiLocation> for SequesterAccountIdToMultiLocation {
-    fn convert(account: AccountId) -> MultiLocation {
-        todo!()
-    }
-}
-
 impl donations_pallet::Config for Test {
     type Event = Event;
     type BalancesEvent = Event;
@@ -350,7 +345,7 @@ impl donations_pallet::Config for Test {
 
     type TxnFeePercentage = TxnFeePercentage;
     type FeeCalculator = TransactionFeeCalculator<Self>;
-    type AccountIdToMultiLocation = SequesterAccountIdToMultiLocation;
+    type AccountIdToMultiLocation = ();
     type SequesterTransferFee = SequesterTransferFee;
     type SequesterTransferWeight = SequesterTransferWeight;
 

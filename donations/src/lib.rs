@@ -240,7 +240,7 @@ pub mod pallet {
             if fees_to_send > transfer_fee && *budget_remaining >= fees_to_send {
                 *budget_remaining -= fees_to_send;
 
-                let sequester_acc = SEQUESTER_PALLET_ID.into_account();
+                let sequester_acc = Self::sequester_account_id();
 
                 imbalance.subsume(T::Currency::deposit_creating(&sequester_acc, fees_to_send));
                 // reset fee counter
@@ -360,23 +360,17 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        pub fn sequester_account_id() -> T::AccountId {
+            let account_id = SEQUESTER_PALLET_ID.into_account();
+            account_id
+        }
+
         fn calculate_fees_for_block() -> BalanceOf<T> {
             let events = <frame_system::Pallet<T>>::read_events_no_consensus();
+
             let block_fee_sum = <T as Config>::FeeCalculator::match_events(events);
+
             block_fee_sum
-
-            // let mut curr_block_fee_sum = Zero::zero();
-
-            // let filtered_events = events.into_iter().filter_map(|event_record| {
-            //     let balances_event = <T as Config>::BalancesEvent::from(event_record.event);
-            //     balances_event.try_into().ok()
-            // });
-
-            // for event in filtered_events {
-            //     <T as Config>::FeeCalculator::match_event(event, &mut curr_block_fee_sum);
-            // }
-
-            // curr_block_fee_sum
         }
 
         fn update_storage(block_fee_sum: BalanceOf<T>) {
