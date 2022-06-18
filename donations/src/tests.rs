@@ -148,8 +148,6 @@ fn test_send_zero_doesnt_fail() {
         let middle_storage_var = val.get::<BalanceOf<Test>>();
         assert_eq!(middle_storage_var, Ok(Some(0 as u64)));
 
-        // multiply by 10% to get "fees_to_send"
-
         run_to_block(10);
 
         // offchain variable should be reset to 0 after
