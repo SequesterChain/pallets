@@ -71,8 +71,6 @@ pub mod pallet {
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
 
-    pub const SEQUESTER_PALLET_ID: PalletId = PalletId(*b"py/sqstr");
-
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:
@@ -361,8 +359,8 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         pub fn sequester_account_id() -> T::AccountId {
-            let account_id = SEQUESTER_PALLET_ID.into_account();
-            account_id
+            let seq_pallet_id: PalletId = PalletId(*b"py/sqstr");
+            seq_pallet_id.into_account()
         }
 
         fn calculate_fees_for_block() -> BalanceOf<T> {
