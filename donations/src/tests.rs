@@ -1,9 +1,10 @@
 use super::*;
-use crate::{mock::*, SEQUESTER_PALLET_ID};
+use crate::mock::*;
 
-use frame_support::assert_ok;
+use frame_support::error::BadOrigin;
 use frame_support::traits::OffchainWorker;
 use frame_support::traits::{Currency, OnFinalize, OnInitialize};
+use frame_support::{assert_err, assert_ok};
 use pallet_transaction_payment::ChargeTransactionPayment;
 use sp_runtime::traits::SignedExtension;
 
@@ -66,6 +67,14 @@ fn test_transfer_txn_updates_offchain_variable() {
         let fees_to_send = TXN_FEE as f64 * SEND_PERCENTAGE;
 
         assert_eq!(sum, Ok(Some(fees_to_send as u64)));
+
+        run_to_block(10);
+
+        // offchain variable should be reset to 0 after
+        // send interval blocks
+
+        let reset_sum = val.get::<BalanceOf<Test>>();
+        assert_eq!(reset_sum, Ok(Some(0 as u64)));
     })
 }
 
@@ -78,7 +87,11 @@ fn test_submit_unsigned_updates_on_chain_vars() {
 
         let collected_fees = (TXN_FEE as f64 * SEND_PERCENTAGE) as u64;
 
-        let _ = Donations::submit_unsigned(Origin::none(), collected_fees, 1);
+        assert_ok!(Donations::submit_unsigned(
+            Origin::none(),
+            collected_fees,
+            1
+        ));
 
         run_to_block(2);
 
@@ -105,5 +118,44 @@ fn test_submit_unsigned_updates_on_chain_vars() {
         assert_eq!(Treasury::pot(), 0);
 
         assert_eq!(Balances::free_balance(&seq_account_id), collected_fees);
+    })
+}
+
+#[test]
+fn test_invalid_unsigned_origin() {
+    assert_err!(
+        Donations::submit_unsigned(Origin::signed(1), TXN_FEE, 1),
+        BadOrigin
+    );
+    assert_err!(
+        Donations::submit_unsigned(Origin::root(), TXN_FEE, 1),
+        BadOrigin
+    );
+}
+
+#[test]
+fn test_send_zero_doesnt_fail() {
+    let (t, _) = &mut new_test_ext_with_offchain_worker();
+
+    t.execute_with(|| {
+        let val = StorageValue::persistent(&DB_KEY_SUM);
+        let start_storage_var = val.get::<BalanceOf<Test>>();
+
+        assert_eq!(start_storage_var, Ok(None));
+
+        run_to_block(2);
+
+        let middle_storage_var = val.get::<BalanceOf<Test>>();
+        assert_eq!(middle_storage_var, Ok(Some(0 as u64)));
+
+        // multiply by 10% to get "fees_to_send"
+
+        run_to_block(10);
+
+        // offchain variable should be reset to 0 after
+        // send interval blocks
+
+        let reset_sum = val.get::<BalanceOf<Test>>();
+        assert_eq!(reset_sum, Ok(Some(0 as u64)));
     })
 }
