@@ -1,3 +1,17 @@
+// Copyright 2022 Sequester Developer.
+// This file is part of Sequester.
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // -------------------------------------------------------------------------------------------
 //                                    Donations Pallet
 // -------------------------------------------------------------------------------------------
@@ -28,6 +42,7 @@
 // trait, which will check the on-chain storage for queued txn fees. If txn fees are queued,
 // they will be subsumed into a special Sequester account, and an XCM will be constructed sending
 // the queued funds to the Sequester chain.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -80,12 +95,19 @@ pub mod pallet {
         + pallet_xcm::Config
         + SendTransactionTypes<Call<Self>>
     {
+        // The standard event type
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+
+        // Type used to convert generic frame events into the
+        // event type specifically emitted by the balances pallet
         type BalancesEvent: From<<Self as frame_system::Config>::Event>
             + TryInto<pallet_balances::Event<Self>>;
 
+        // A struct that calculates your chain’s transaction fees from
+        // the frame_events in a given block
         type FeeCalculator: FeeCalculator<Self>;
 
+        // A standard AccountIdToMultiLocation converter
         type AccountIdToMultiLocation: Convert<Self::AccountId, MultiLocation>;
 
         // weight of an xcm transaction to send to sequester
@@ -96,7 +118,8 @@ pub mod pallet {
         #[pallet::constant]
         type SequesterTransferWeight: Get<Weight>;
 
-        // Transaction priority for the unsigned transactions
+        // The priority of the unsigned transactions submitted by
+        // the Sequester pallet
         #[pallet::constant]
         type UnsignedPriority: Get<TransactionPriority>;
 
@@ -105,12 +128,18 @@ pub mod pallet {
         #[pallet::constant]
         type SendInterval: Get<Self::BlockNumber>;
 
+        // The percentage of transaction fees that you would like to send
+        // from your chain’s treasury to the Sequester chain
         #[pallet::constant]
         type TxnFeePercentage: Get<Percent>;
 
+        // The MultiLocation representing where the reserve funds
+        // are stored (e.g Statemine/Statemint)
         #[pallet::constant]
         type ReserveMultiLocation: Get<MultiLocation>;
 
+        // The MultiLocation representing where the funds will be going
+        // e.g (sequester kusama chain or sequester polkadot chain)
         #[pallet::constant]
         type SequesterMultiLocation: Get<MultiLocation>;
     }
@@ -136,20 +165,22 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Transaction fee has been sent from the treasury to Sequester with
-        /// amount: Balance
+        /// Transaction fee sum from offchain worker has been processed
+        /// and stored on chain
         TxnFeeQueued(BalanceOf<T>),
+        /// Transaction fee sum has been withdrawn from treasury account
+        /// to Sequester account
         TxnFeeSubsumed(BalanceOf<T>),
+        /// Transaction fee has successfully been sent from chain
+        /// to Sequester
         SequesterTransferSuccess(BalanceOf<T>),
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Error names should be descriptive.
-        XcmExecutionFailed,
-        /// Errors should have helpful documentation associated with them.
-        FeeConvertFailed,
         InvalidXCMExtrinsicCall,
+        FeeConvertFailed,
+        XcmExecutionFailed,
     }
 
     #[pallet::hooks]
