@@ -140,6 +140,7 @@ pub mod pallet {
         /// amount: Balance
         TxnFeeQueued(BalanceOf<T>),
         TxnFeeSubsumed(BalanceOf<T>),
+        SequesterTransferSuccess(BalanceOf<T>),
     }
 
     #[pallet::error]
@@ -353,6 +354,7 @@ pub mod pallet {
             .ensure_complete()
             .map_err(|_| Error::<T>::XcmExecutionFailed)?;
 
+            Self::deposit_event(Event::SequesterTransferSuccess(amount));
             Ok(None.into())
         }
     }

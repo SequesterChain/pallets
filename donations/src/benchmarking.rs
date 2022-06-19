@@ -18,20 +18,19 @@ fn assert_last_event<T: Config>(generic_event: <T as Config>::Event) {
 
 benchmarks! {
     submit_unsigned {
-        let s in 0 .. 100;
-        let block = T::BlockNumber::from(1u32);
-        let caller: T::AccountId = whitelisted_caller();
-    }: _(RawOrigin::Signed(caller), s.into(), block)
+        let s in 0 .. 100_000_000;
+        let block = T::BlockNumber::from(0u32);
+    }: _(RawOrigin::None, s.into(), block)
     verify {
         assert_last_event::<T>(Event::TxnFeeQueued(s.into()).into())
     }
 
     xcm_transfer_to_sequester {
-        let s in 0 .. 100;
+        let s in 10_000_000 .. 100_000_000;
         let caller: T::AccountId = whitelisted_caller();
     }: _(RawOrigin::Signed(caller), s.into())
     verify {
-        // todo
+        assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
     }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
