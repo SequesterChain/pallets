@@ -199,6 +199,11 @@ impl<Origin: OriginTrait> EnsureOrigin<Origin> for ConvertOriginToLocal {
     fn try_origin(_: Origin) -> Result<MultiLocation, Origin> {
         Ok(MultiLocation::here())
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn successful_origin() -> Origin {
+        Origin::from(RawOrigin::Signed(Default::default()))
+    }
 }
 
 pub struct DoNothingRouter;
