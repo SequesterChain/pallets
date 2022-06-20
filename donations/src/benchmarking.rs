@@ -43,10 +43,12 @@ benchmarks! {
     }
 
     xcm_transfer_to_sequester {
-        let s in 10_000_000_000 .. 100_000_000_000;
+        let s in 900_000_000 .. 1_000_000_000;
         let caller: T::AccountId = whitelisted_caller();
 
-        let amount = s.unique_saturated_into();
+        let seq_fund = 999_999_999_999_999u64;
+
+        let amount = seq_fund.unique_saturated_into();
         T::Currency::make_free_balance_be(&caller, amount);
     }: _(RawOrigin::Signed(caller), s.into())
     verify {
