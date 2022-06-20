@@ -49,9 +49,6 @@ benchmarks! {
         let amount = s.unique_saturated_into();
         T::Currency::make_free_balance_be(&caller, amount);
     }: _(RawOrigin::Signed(caller), s.into())
-    verify {
-        assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
-    }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
 }

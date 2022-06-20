@@ -419,8 +419,6 @@ pub mod pallet {
 
             log::info!("amount to send via xcm: {:?}", amount);
 
-            log::info!("balance of account: {:?}", T::Currency::free_balance(&who));
-
             let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
 
             let send_amount_u128 =
