@@ -332,12 +332,7 @@ pub mod pallet {
     /// SpendFunds implementation. Since the transaction fees we will be sending were originally sent to the
     /// treasury, we use the SpendFunds callback to pull funds out of the treasury and into the Sequester account,
     /// which we will use to send funds via XCM
-    impl<T: Config> pallet_treasury::SpendFunds<T> for Pallet<T>
-    where
-        <<T as pallet_treasury::Config>::Currency as Currency<
-            <T as frame_system::Config>::AccountId,
-        >>::Balance: From<<T as pallet_balances::Config>::Balance>,
-    {
+    impl<T: Config> pallet_treasury::SpendFunds<T> for Pallet<T> {
         fn spend_funds(
             budget_remaining: &mut BalanceOf<T>,
             imbalance: &mut PositiveImbalanceOf<T>,
