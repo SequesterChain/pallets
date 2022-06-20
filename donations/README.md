@@ -1,6 +1,6 @@
 # Sequester Donations Pallet
 
-A pallet that can be added to any Polkadot or Kusama based chain which will track transaction fees sent over a period of time, and send a percentage of them to the Sequester Common Good Chain.
+A pallet that can be added to any Polkadot or Kusama based chain which will track transaction fees sent over a period of time, and send a percentage of them to the Sequester Common Good Chain, where the funds are exchanged for Carbon Credits that are permanently retired.
 
 ## Adding the Pallet To Your Chain
 
