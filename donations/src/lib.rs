@@ -366,7 +366,7 @@ pub mod pallet {
 
                 let _ = Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
-                    sequester_bal,
+                    fees_to_send,
                 );
             }
             // *total_weight += <T as Config>::WeightInfo::spend_funds(bounties_len);
@@ -418,6 +418,11 @@ pub mod pallet {
             let send_amount = amount.saturating_sub(fee);
 
             log::info!("amount to send via xcm: {:?}", amount);
+
+            log::info!(
+                "balance of account: {:?}",
+                T::Currency::free_balance(&Self::get_sequester_account_id())
+            );
 
             let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
 
