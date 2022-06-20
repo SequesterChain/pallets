@@ -43,9 +43,6 @@ benchmarks! {
         let s in 10_000_000 .. 100_000_000;
         let caller: T::AccountId = whitelisted_caller();
     }: _(RawOrigin::Signed(caller), s.into())
-    verify {
-        assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
-    }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
 }
