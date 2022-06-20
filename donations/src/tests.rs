@@ -112,7 +112,7 @@ fn test_submit_unsigned_updates_on_chain_vars() {
         assert_eq!(Donations::next_unsigned_at(), 1 + SEND_INTERVAL);
         assert_eq!(Donations::fees_to_send(), collected_fees);
 
-        let seq_account_id = Donations::sequester_account_id();
+        let seq_account_id = Donations::get_sequester_account_id();
 
         Balances::make_free_balance_be(&Treasury::account_id(), collected_fees + 10);
         Balances::make_free_balance_be(&seq_account_id, 0);

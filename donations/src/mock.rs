@@ -140,7 +140,7 @@ impl system::Config for Test {
 
 parameter_types! {
     pub const UnsignedPriority: u64 = 99999999;
-    pub const SendInterval: BlockNumber = 9;
+    pub const OnChainUpdateInterval: BlockNumber = 9;
 
     pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
     pub const MaxApprovals: u32 = 100;
@@ -321,7 +321,7 @@ where
         >>::Balance,
     >,
 {
-    fn match_events(
+    fn calculate_fees_from_events(
         _events: Vec<
             EventRecord<<S as frame_system::Config>::Event, <S as frame_system::Config>::Hash>,
         >,
@@ -355,7 +355,7 @@ impl donations_pallet::Config for Test {
     type Event = Event;
     type BalancesEvent = Event;
     type UnsignedPriority = UnsignedPriority;
-    type SendInterval = SendInterval;
+    type OnChainUpdateInterval = OnChainUpdateInterval;
 
     type TxnFeePercentage = TxnFeePercentage;
     type FeeCalculator = TransactionFeeCalculator<Self>;

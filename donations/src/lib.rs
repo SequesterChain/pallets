@@ -34,7 +34,7 @@
 // the sum of txn fees caculated will be added to an off-chain variable storing cumulative txn
 // fees on-chain
 //
-// 2) Every SendInterval blocks, the offchain worker will submit an unsigned transaction to
+// 2) Every OnChainUpdateInterval blocks, the offchain worker will submit an unsigned transaction to
 // record the pending txn fees in on-chain storage, reset the off-chain cumulative fee variable,
 // and send a TxnFeeQueued event.
 //
@@ -123,10 +123,10 @@ pub mod pallet {
         #[pallet::constant]
         type UnsignedPriority: Get<TransactionPriority>;
 
-        // Interval (in blocks) at which we send fees to sequester and reset the
+        // Interval (in blocks) at which we store the pending fees and reset the
         // txn-fee-sum variable
         #[pallet::constant]
-        type SendInterval: Get<Self::BlockNumber>;
+        type OnChainUpdateInterval: Get<Self::BlockNumber>;
 
         // The percentage of transaction fees that you would like to send
         // from your chain’s treasury to the Sequester chain
@@ -197,15 +197,96 @@ pub mod pallet {
 
             block_fee_sum = percent_to_send * block_fee_sum;
 
-            Self::update_storage(block_fee_sum);
+            Self::update_offchain_storage(block_fee_sum);
 
             // send fees to sequester
-            if (block_number % T::SendInterval::get()).is_zero() {
-                Self::send_fees_to_sequester(block_number);
+            if (block_number % T::OnChainUpdateInterval::get()).is_zero() {
+                Self::queue_pending_txn_fees_onchain(block_number);
             }
         }
     }
 
+    impl<T: Config> Pallet<T> {
+        /// Get the account ID of the Sequester account.
+        /// Treasury funds that will be sent to Sequester will be
+        /// temporarily stored in this account
+        pub fn get_sequester_account_id() -> T::AccountId {
+            let seq_pallet_id: PalletId = PalletId(*b"py/sqstr");
+            seq_pallet_id.into_account()
+        }
+
+        /// Calculate the fees for a given block.
+        /// since fees are customizable on Substrate chains and each chain has control over where fees are sent
+        /// via the pallet_transaction_payment pallet, each chain also will have to implement its own custom logic
+        /// re: summing the transaction fees. This logic is passed in through the FeeCalculator struct
+        fn calculate_fees_for_block() -> BalanceOf<T> {
+            let events = <frame_system::Pallet<T>>::read_events_no_consensus();
+
+            let block_fee_sum = <T as Config>::FeeCalculator::calculate_fees_from_events(events);
+
+            block_fee_sum
+        }
+
+        /// Updates the offchain storage variable tracking cumulative txn fees by safely adding
+        /// the fees calculated in a given block to the running amount
+        fn update_offchain_storage(block_fee_sum: BalanceOf<T>) {
+            // Use get/set instead of mutation to guarantee that we don't
+            // hit any MutateStorageError::ConcurrentModification errors
+            let mut lock = StorageLock::<Time>::new(&DB_LOCK);
+            {
+                let _guard = lock.lock();
+                let val = StorageValueRef::persistent(&DB_KEY_SUM);
+                match val.get::<BalanceOf<T>>() {
+                    // initialize value
+                    Ok(None) => {
+                        val.set(&block_fee_sum);
+                    }
+                    // update value
+                    Ok(Some(fetched_txn_fee_sum)) => {
+                        val.set(&fetched_txn_fee_sum.saturating_add(block_fee_sum));
+                    }
+                    _ => {}
+                };
+            }
+        }
+
+        /// Takes all of the pending transaction fees which have been stored in the offchain
+        /// variable and submits an unsigned transaction to store that queue on chain. Once the
+        /// value is queued, it will be sent the the Sequester chain the next time that the
+        /// SpendFunds callback is initiated in the Treasury pallet
+        fn queue_pending_txn_fees_onchain(block_num: T::BlockNumber) {
+            // get lock so that another ocw doesn't modify the value mid-send
+            let mut lock = StorageLock::<Time>::new(&DB_LOCK);
+            {
+                let _guard = lock.lock();
+                let val = StorageValueRef::persistent(&DB_KEY_SUM);
+                let fees_to_send = val.get::<BalanceOf<T>>();
+                match fees_to_send {
+                    Ok(Some(fetched_fees)) => {
+                        let call = Call::<T>::submit_unsigned {
+                            amount: fetched_fees,
+                            block_num,
+                        };
+                        let txn_res = SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(
+                            call.into(),
+                        );
+                        match txn_res {
+                            Ok(_) => {
+                                let zero_bal: BalanceOf<T> = Zero::zero();
+                                val.set(&zero_bal);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    _ => {}
+                };
+            }
+        }
+    }
+
+    /// Validation logic from unsigned transactions. In order to make sure that malicious txns
+    /// can't get through, we discard any Transactions not from a local OCW and make sure that only
+    /// 1 txn can be submitted every OnChainUpdateInterval blocks
     #[pallet::validate_unsigned]
     impl<T: Config> ValidateUnsigned for Pallet<T> {
         type Call = Call<T>;
@@ -248,7 +329,15 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> pallet_treasury::SpendFunds<T> for Pallet<T> {
+    /// SpendFunds implementation. Since the transaction fees we will be sending were originally sent to the
+    /// treasury, we use the SpendFunds callback to pull funds out of the treasury and into the Sequester account,
+    /// which we will use to send funds via XCM
+    impl<T: Config> pallet_treasury::SpendFunds<T> for Pallet<T>
+    where
+        <<T as pallet_treasury::Config>::Currency as Currency<
+            <T as frame_system::Config>::AccountId,
+        >>::Balance: From<<T as pallet_balances::Config>::Balance>,
+    {
         fn spend_funds(
             budget_remaining: &mut BalanceOf<T>,
             imbalance: &mut PositiveImbalanceOf<T>,
@@ -270,7 +359,7 @@ pub mod pallet {
             if fees_to_send > transfer_fee && *budget_remaining >= fees_to_send {
                 *budget_remaining -= fees_to_send;
 
-                let sequester_acc = Self::sequester_account_id();
+                let sequester_acc = Self::get_sequester_account_id();
 
                 imbalance.subsume(T::Currency::deposit_creating(&sequester_acc, fees_to_send));
                 // reset fee counter
@@ -278,9 +367,11 @@ pub mod pallet {
                 FeesToSend::<T>::set(zero_bal);
                 Self::deposit_event(Event::TxnFeeSubsumed(fees_to_send));
 
+                let sequester_bal = T::Currency::free_balance(&Self::get_sequester_account_id());
+
                 let _ = Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
-                    fees_to_send,
+                    sequester_bal,
                 );
             }
             // *total_weight += <T as Config>::WeightInfo::spend_funds(bounties_len);
@@ -289,8 +380,10 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        // TODO: calculate weight
+        /// The extrinsic for submitting an unsigned transaction. Stores the fees_to_send on-chain
+        /// and emits a TxnFeeQueued event
         #[pallet::weight(10_000)]
+        // TODO: update weight
         pub fn submit_unsigned(
             origin: OriginFor<T>,
             amount: BalanceOf<T>,
@@ -298,8 +391,8 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
 
-            // update storage to reject unsigned transactions until SendInterval blocks pass
-            <NextUnsignedAt<T>>::put(block_num + T::SendInterval::get());
+            // update storage to reject unsigned transactions until OnChainUpdateInterval blocks pass
+            <NextUnsignedAt<T>>::put(block_num + T::OnChainUpdateInterval::get());
 
             let pending_fees = Self::fees_to_send();
 
@@ -310,8 +403,10 @@ pub mod pallet {
             Ok(None.into())
         }
 
-        // TODO: calculate weight
+        /// The extrinsic for sending funds to sequester via an XCM call. The present XCM call is a placeholder
+        /// until the Sequester chains have been built and design architecture has been finalized.
         #[pallet::weight(10_000)]
+        // TODO: update weight
         pub fn xcm_transfer_to_sequester(
             origin: OriginFor<T>,
             amount: BalanceOf<T>,
@@ -387,71 +482,6 @@ pub mod pallet {
 
             Self::deposit_event(Event::SequesterTransferSuccess(amount));
             Ok(None.into())
-        }
-    }
-
-    impl<T: Config> Pallet<T> {
-        pub fn sequester_account_id() -> T::AccountId {
-            let seq_pallet_id: PalletId = PalletId(*b"py/sqstr");
-            seq_pallet_id.into_account()
-        }
-
-        fn calculate_fees_for_block() -> BalanceOf<T> {
-            let events = <frame_system::Pallet<T>>::read_events_no_consensus();
-
-            let block_fee_sum = <T as Config>::FeeCalculator::match_events(events);
-
-            block_fee_sum
-        }
-
-        fn update_storage(block_fee_sum: BalanceOf<T>) {
-            // Use get/set instead of mutation to guarantee that we don't
-            // hit any MutateStorageError::ConcurrentModification errors
-            let mut lock = StorageLock::<Time>::new(&DB_LOCK);
-            {
-                let _guard = lock.lock();
-                let val = StorageValueRef::persistent(&DB_KEY_SUM);
-                match val.get::<BalanceOf<T>>() {
-                    // initialize value
-                    Ok(None) => {
-                        val.set(&block_fee_sum);
-                    }
-                    // update value
-                    Ok(Some(fetched_txn_fee_sum)) => {
-                        val.set(&fetched_txn_fee_sum.saturating_add(block_fee_sum));
-                    }
-                    _ => {}
-                };
-            }
-        }
-
-        fn send_fees_to_sequester(block_num: T::BlockNumber) {
-            // get lock so that another ocw doesn't modify the value mid-send
-            let mut lock = StorageLock::<Time>::new(&DB_LOCK);
-            {
-                let _guard = lock.lock();
-                let val = StorageValueRef::persistent(&DB_KEY_SUM);
-                let fees_to_send = val.get::<BalanceOf<T>>();
-                match fees_to_send {
-                    Ok(Some(fetched_fees)) => {
-                        let call = Call::<T>::submit_unsigned {
-                            amount: fetched_fees,
-                            block_num,
-                        };
-                        let txn_res = SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(
-                            call.into(),
-                        );
-                        match txn_res {
-                            Ok(_) => {
-                                let zero_bal: BalanceOf<T> = Zero::zero();
-                                val.set(&zero_bal);
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                    _ => {}
-                };
-            }
         }
     }
 }
