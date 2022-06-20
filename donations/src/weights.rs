@@ -17,7 +17,7 @@
 // --pallet
 // pallet_donations
 // --extrinsic
-// submit_unsigned
+// *
 // --steps
 // 20
 // --repeat
@@ -39,8 +39,11 @@ impl<T: frame_system::Config> pallet_donations::WeightInfo for WeightInfo<T> {
 	// Storage: Donations FeesToSend (r:1 w:1)
 	// Storage: Donations NextUnsignedAt (r:0 w:1)
 	fn submit_unsigned(_s: u32, ) -> Weight {
-		(9_218_000 as Weight)
+		(9_027_000 as Weight)
 			.saturating_add(T::DbWeight::get().reads(1 as Weight))
 			.saturating_add(T::DbWeight::get().writes(2 as Weight))
+	}
+	fn xcm_transfer_to_sequester(_s: u32, ) -> Weight {
+		(10_389_000 as Weight)
 	}
 }

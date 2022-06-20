@@ -440,8 +440,8 @@ pub mod pallet {
             assets.push(transfer_asset.clone());
             assets.push(fee_asset.clone());
 
-            // Please note this is a placeholder XCM call that will be
-            // formalized once the Sequester chain is built
+            // Please note this is a placeholder XCM call that will be formalized
+            // with proper event handling once the Sequester chain is built
 
             let reserve: MultiLocation = T::ReserveMultiLocation::get();
 
