@@ -466,14 +466,14 @@ pub mod pallet {
                 },
             ]);
 
-            <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
+            let outcome = <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
                 origin_location,
                 msg,
                 weight,
                 weight,
-            )
-            .ensure_complete()
-            .map_err(|_| Error::<T>::XcmExecutionFailed)?;
+            );
+
+            log::info!("outcome: {:?}", outcome);
 
             Self::deposit_event(Event::SequesterTransferSuccess(amount));
             Ok(None.into())

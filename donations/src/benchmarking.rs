@@ -45,10 +45,11 @@ benchmarks! {
     xcm_transfer_to_sequester {
         let s in 10_000_000 .. 100_000_000;
         let caller: T::AccountId = whitelisted_caller();
-
-        let amount = s.unique_saturated_into();
-        T::Currency::make_free_balance_be(&caller, amount);
+        T::Currency::make_free_balance_be(&caller, s.unique_saturated_into());
     }: _(RawOrigin::Signed(caller), s.into())
+    verify {
+        assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
+    }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
 }
