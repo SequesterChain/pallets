@@ -32,6 +32,9 @@ type FeeCalculator: FeeCalculator<Self>;
 // A standard AccountIdToMultiLocation converter
 type AccountIdToMultiLocation: Convert<Self::AccountId, MultiLocation>;
 
+// Weight information for extrinsics in this pallet
+type WeightInfo: WeightInfo;
+
 // weight of an xcm transaction to send to sequester
 #[pallet::constant]
 type SequesterTransferFee: Get<BalanceOf<Self>>;
