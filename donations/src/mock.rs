@@ -362,6 +362,7 @@ impl donations_pallet::Config for Test {
 
     type ReserveMultiLocation = ReserveMultiLocation;
     type SequesterMultiLocation = SequesterMultiLocation;
+    type WeightInfo = ();
 }
 
 thread_local! {
