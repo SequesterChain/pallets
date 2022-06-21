@@ -86,6 +86,12 @@ pub mod pallet {
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
 
+    pub trait WeightInfo {
+        fn submit_unsigned() -> Weight;
+        fn xcm_transfer_to_sequester() -> Weight;
+        fn spend_funds() -> Weight;
+    }
+
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:

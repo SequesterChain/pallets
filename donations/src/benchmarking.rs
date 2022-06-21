@@ -16,12 +16,14 @@
 
 use super::*;
 
-#[allow(unused)]
 use crate::Pallet as Donations;
-use frame_benchmarking::{benchmarks, whitelisted_caller};
-use frame_support::traits::Currency;
+use frame_benchmarking::{benchmarks, whitelisted_caller, Zero};
+use frame_support::pallet_prelude::Weight;
+use frame_support::traits::{Currency, Imbalance};
 use frame_system::EventRecord;
 use frame_system::RawOrigin;
+
+use pallet_treasury::BalanceOf;
 
 use sp_runtime::traits::UniqueSaturatedInto;
 
@@ -31,6 +33,15 @@ fn assert_last_event<T: Config>(generic_event: <T as Config>::Event) {
     // compare to the last event record
     let EventRecord { event, .. } = &events[events.len() - 1];
     assert_eq!(event, &system_event);
+}
+
+fn setup_pot_account<T: Config>() {
+    let treasury_acc = pallet_treasury::Pallet::<T>::account_id();
+    let _ =
+        T::Currency::make_free_balance_be(&treasury_acc, 100_000_000u64.unique_saturated_into());
+
+    let fees_to_send: BalanceOf<T> = 100_000u64.unique_saturated_into();
+    FeesToSend::<T>::set(fees_to_send);
 }
 
 benchmarks! {
@@ -49,6 +60,26 @@ benchmarks! {
     }: _(RawOrigin::Signed(caller), s.into())
     verify {
         assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
+    }
+
+    spend_funds {
+        let b in 1 .. 100;
+        setup_pot_account::<T>();
+
+        let mut budget_remaining = 100_000_000u64.unique_saturated_into();
+        let mut imbalance = pallet_treasury::PositiveImbalanceOf::<T>::zero();
+        let mut total_weight = Weight::zero();
+        let mut missed_any = false;
+    }: {
+        <Donations<T> as pallet_treasury::SpendFunds<T>>::spend_funds(
+            &mut budget_remaining,
+            &mut imbalance,
+            &mut total_weight,
+            &mut missed_any,
+        );
+    }
+    verify {
+        assert_last_event::<T>(Event::TxnFeeSubsumed(b.into()).into())
     }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
