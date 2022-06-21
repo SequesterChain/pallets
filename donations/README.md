@@ -14,7 +14,7 @@ Included are docker files to set up the development environment and instructions
 
 ### Documentation/Configuration Options
 
-A short overview of our pallet types are below, with comments. You can view an example implementation [here](https://github.com/SequesterChain/sequester-example-node/blob/main/runtime/src/lib.rs#L325-L360). For a more in-depth overview, please see our [Medium article](https://medium.com/@sequester.chain/introducing-sequesters-donations-pallet-3e55f54cdfd1).
+A short overview of our pallet types are below, with comments. You can view an example implementation [here](https://github.com/SequesterChain/sequester-example-node/blob/main/runtime/src/lib.rs#L325-L360). For a more in-depth overview, please see our technical deep dive on the donations pallet [here](https://medium.com/@sequester.chain/introducing-sequesters-donations-pallet-3e55f54cdfd1).
 
 ```
 // The standard event type
