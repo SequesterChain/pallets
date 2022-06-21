@@ -46,24 +46,23 @@ fn setup_pot_account<T: Config>() {
 
 benchmarks! {
     submit_unsigned {
-        let s in 0 .. 100_000_000;
         let block = T::BlockNumber::from(0u32);
-    }: _(RawOrigin::None, s.into(), block)
+        let amount = 100_000_000u32.unique_saturated_into();
+    }: _(RawOrigin::None, amount, block)
     verify {
-        assert_last_event::<T>(Event::TxnFeeQueued(s.into()).into())
+        assert_last_event::<T>(Event::TxnFeeQueued(amount).into())
     }
 
     xcm_transfer_to_sequester {
-        let s in 10_000_000 .. 100_000_000;
         let caller: T::AccountId = whitelisted_caller();
-        T::Currency::make_free_balance_be(&caller, s.unique_saturated_into());
-    }: _(RawOrigin::Signed(caller), s.into())
+        let amount = 100_000_000u32.unique_saturated_into();
+        T::Currency::make_free_balance_be(&caller, amount);
+    }: _(RawOrigin::Signed(caller), amount)
     verify {
-        assert_last_event::<T>(Event::SequesterTransferSuccess(s.into()).into())
+        assert_last_event::<T>(Event::SequesterTransferSuccess(amount).into())
     }
 
     spend_funds {
-        let b in 1 .. 100;
         setup_pot_account::<T>();
 
         let mut budget_remaining = 100_000_000u64.unique_saturated_into();
