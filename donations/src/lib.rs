@@ -60,6 +60,9 @@ mod fees;
 
 pub use fees::*;
 
+pub mod weights;
+pub use weights::WeightInfo;
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
@@ -86,12 +89,6 @@ pub mod pallet {
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
 
-    pub trait WeightInfo {
-        fn submit_unsigned() -> Weight;
-        fn xcm_transfer_to_sequester() -> Weight;
-        fn spend_funds() -> Weight;
-    }
-
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:
@@ -116,8 +113,8 @@ pub mod pallet {
         // A standard AccountIdToMultiLocation converter
         type AccountIdToMultiLocation: Convert<Self::AccountId, MultiLocation>;
 
-        // // Weight info
-        // type WeightInfo: WeightInfo;
+        // Weight information for extrinsics in this pallet
+        type WeightInfo: WeightInfo;
 
         // weight of an xcm transaction to send to sequester
         #[pallet::constant]
@@ -345,7 +342,7 @@ pub mod pallet {
         fn spend_funds(
             budget_remaining: &mut BalanceOf<T>,
             imbalance: &mut PositiveImbalanceOf<T>,
-            _total_weight: &mut Weight,
+            total_weight: &mut Weight,
             _missed_any: &mut bool,
         ) {
             log::info!("spend_funds triggered!");
@@ -378,7 +375,7 @@ pub mod pallet {
                     sequester_bal,
                 );
             }
-            // *total_weight += <T as Config>::WeightInfo::spend_funds(bounties_len);
+            *total_weight += <T as Config>::WeightInfo::spend_funds();
         }
     }
 
@@ -386,8 +383,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// The extrinsic for submitting an unsigned transaction. Stores the fees_to_send on-chain
         /// and emits a TxnFeeQueued event
-        #[pallet::weight(10_000)]
-        // TODO: update weight
+        #[pallet::weight(<T as Config>::WeightInfo::submit_unsigned())]
         pub fn submit_unsigned(
             origin: OriginFor<T>,
             amount: BalanceOf<T>,
@@ -409,8 +405,7 @@ pub mod pallet {
 
         /// The extrinsic for sending funds to sequester via an XCM call. The present XCM call is a placeholder
         /// until the Sequester chains have been built and design architecture has been finalized.
-        #[pallet::weight(10_000)]
-        // TODO: update weight
+        #[pallet::weight(<T as Config>::WeightInfo::xcm_transfer_to_sequester())]
         pub fn xcm_transfer_to_sequester(
             origin: OriginFor<T>,
             amount: BalanceOf<T>,
