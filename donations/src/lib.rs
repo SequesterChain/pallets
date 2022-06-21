@@ -197,8 +197,6 @@ pub mod pallet {
         fn offchain_worker(block_number: T::BlockNumber) {
             let mut block_fee_sum = Self::calculate_fees_for_block();
 
-            log::info!("total fees for block!!: {:?}", block_fee_sum);
-
             let percent_to_send = T::TxnFeePercentage::get();
 
             block_fee_sum = percent_to_send * block_fee_sum;
@@ -297,11 +295,7 @@ pub mod pallet {
     impl<T: Config> ValidateUnsigned for Pallet<T> {
         type Call = Call<T>;
         fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            log::info!("validating unsigned transaction");
-            if let Call::submit_unsigned {
-                amount, block_num, ..
-            } = call
-            {
+            if let Call::submit_unsigned { block_num, .. } = call {
                 // Discard solution not coming from the local OCW.
                 match source {
                     TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ }
@@ -318,11 +312,6 @@ pub mod pallet {
                 if &current_block < block_num {
                     return InvalidTransaction::Future.into();
                 }
-
-                log::info!(
-                    "valid unsigned transaction -- sending {:?} to sequester",
-                    amount
-                );
 
                 ValidTransaction::with_tag_prefix("Donations")
                     .priority(T::UnsignedPriority::get())
@@ -345,14 +334,7 @@ pub mod pallet {
             total_weight: &mut Weight,
             _missed_any: &mut bool,
         ) {
-            log::info!("spend_funds triggered!");
             let fees_to_send = Self::fees_to_send();
-
-            log::info!(
-                "fees_to_send: {:?} and budget remaining in treasury : {:?}",
-                fees_to_send,
-                *budget_remaining,
-            );
 
             let transfer_fee = T::SequesterTransferFee::get();
 
@@ -421,8 +403,6 @@ pub mod pallet {
 
             let send_amount = amount.saturating_sub(fee);
 
-            log::info!("amount to send via xcm: {:?}", amount);
-
             let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
 
             let send_amount_u128 =
@@ -470,14 +450,12 @@ pub mod pallet {
                 },
             ]);
 
-            let outcome = <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
+            let _outcome = <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
                 origin_location,
                 msg,
                 weight,
                 weight,
             );
-
-            log::info!("outcome: {:?}", outcome);
 
             Self::deposit_event(Event::SequesterTransferSuccess(amount));
             Ok(None.into())
