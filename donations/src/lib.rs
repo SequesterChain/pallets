@@ -366,7 +366,7 @@ pub mod pallet {
 
                 let _ = Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
-                    fees_to_send,
+                    sequester_bal,
                 );
             }
             // *total_weight += <T as Config>::WeightInfo::spend_funds(bounties_len);

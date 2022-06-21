@@ -170,3 +170,75 @@ fn test_send_zero_doesnt_fail() {
         assert_eq!(reset_sum, Ok(Some(0 as u64)));
     })
 }
+
+#[test]
+fn test_multiple_txns_single_block() {
+    let (t, _) = &mut new_test_ext_with_offchain_worker();
+
+    t.execute_with(|| {
+        assert_eq!(Balances::free_balance(1), ACC_BAL_1);
+        assert_eq!(Balances::free_balance(2), ACC_BAL_2);
+
+        let len = 10;
+        let dispatch_info = info_from_weight(MOCK_WEIGHT);
+
+        let pre = ChargeTransactionPayment::<Test>::from(0u64.into())
+            .pre_dispatch(&FROM_ACCOUNT, CALL, &dispatch_info, len)
+            .unwrap();
+
+        assert!(ChargeTransactionPayment::<Test>::post_dispatch(
+            Some(pre),
+            &dispatch_info,
+            &default_post_info(),
+            len,
+            &Ok(())
+        )
+        .is_ok());
+
+        assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
+        assert_eq!(FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone()), TXN_FEE);
+
+        let pre_2 = ChargeTransactionPayment::<Test>::from(0u64.into())
+            .pre_dispatch(&FROM_ACCOUNT, CALL, &dispatch_info, len)
+            .unwrap();
+
+        assert!(ChargeTransactionPayment::<Test>::post_dispatch(
+            Some(pre_2),
+            &dispatch_info,
+            &default_post_info(),
+            len,
+            &Ok(())
+        )
+        .is_ok());
+
+        assert_ok!(Balances::transfer(Origin::signed(1), 2, TXN_AMOUNT));
+        assert_eq!(
+            FEE_UNBALANCED_AMOUNT.with(|a| a.borrow().clone()),
+            2 * TXN_FEE
+        );
+
+        run_to_block(2);
+
+        let new_bal_1 = ACC_BAL_1 - (2 * (TXN_AMOUNT + TXN_FEE));
+        let new_bal_2 = ACC_BAL_2 + (2 * TXN_AMOUNT);
+
+        assert_eq!(Balances::free_balance(FROM_ACCOUNT), new_bal_1);
+        assert_eq!(Balances::free_balance(TO_ACCOUNT), new_bal_2);
+
+        let val = StorageValue::persistent(&DB_KEY_SUM);
+        let sum = val.get::<BalanceOf<Test>>();
+
+        // multiply by 10% to get "fees_to_send"
+        let fees_to_send = TXN_FEE as f64 * SEND_PERCENTAGE;
+
+        assert_eq!(sum, Ok(Some(2 * fees_to_send as u64)));
+
+        run_to_block(10);
+
+        // offchain variable should be reset to 0 after
+        // send interval blocks
+
+        let reset_sum = val.get::<BalanceOf<Test>>();
+        assert_eq!(reset_sum, Ok(Some(0 as u64)));
+    })
+}

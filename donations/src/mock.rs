@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{self as donations_pallet, FeeCalculator, Pallet};
+use crate::{self as donations_pallet, FeeCalculator};
 
 use core::ops::AddAssign;
 use frame_support::{
@@ -30,16 +30,13 @@ use system::EventRecord;
 
 use pallet_transaction_payment::CurrencyAdapter;
 use pallet_treasury::BalanceOf;
-use sp_runtime::{
-    offchain::{
-        testing::{self},
-        OffchainDbExt, OffchainWorkerExt, TransactionPoolExt,
-    },
-    traits::Convert,
+use sp_runtime::offchain::{
+    testing::{self},
+    OffchainDbExt, OffchainWorkerExt, TransactionPoolExt,
 };
 use xcm_builder::{AllowUnpaidExecutionFrom, FixedWeightBounds};
 use xcm_executor::{
-    traits::{InvertLocation, TransactAsset, WeightTrader},
+    traits::{TransactAsset, WeightTrader},
     Assets,
 };
 
@@ -48,7 +45,7 @@ use xcm::latest::prelude::*;
 use xcm::latest::{
     Error as XcmError, MultiAsset, MultiLocation, Result as XcmResult, SendResult, SendXcm, Xcm,
 };
-use xcm_builder::{LocationInverter, SignedToAccountId32};
+use xcm_builder::LocationInverter;
 
 type AccountId = u64;
 type AccountIndex = u32;
@@ -370,22 +367,6 @@ impl donations_pallet::Config for Test {
 thread_local! {
     pub static TIP_UNBALANCED_AMOUNT: RefCell<u64> = RefCell::new(0);
     pub static FEE_UNBALANCED_AMOUNT: RefCell<u64> = RefCell::new(0);
-}
-
-// Build genesis storage according to the mock runtime.
-pub fn new_test_ext() -> sp_io::TestExternalities {
-    let mut t = frame_system::GenesisConfig::default()
-        .build_storage::<Test>()
-        .unwrap();
-    pallet_balances::GenesisConfig::<Test> {
-        balances: vec![(1, 100), (2, 200), (3, 300)],
-    }
-    .assimilate_storage(&mut t)
-    .unwrap();
-
-    let mut ext = sp_io::TestExternalities::new(t);
-    ext.execute_with(|| System::set_block_number(1));
-    ext
 }
 
 pub fn new_test_ext_with_offchain_worker() -> (sp_io::TestExternalities, testing::TestOffchainExt) {
