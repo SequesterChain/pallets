@@ -78,9 +78,6 @@ benchmarks! {
             &mut missed_any,
         );
     }
-    verify {
-        assert_last_event::<T>(Event::TxnFeeSubsumed(b.into()).into())
-    }
 
     impl_benchmark_test_suite!(Donations, crate::mock::new_test_ext(), crate::mock::Test);
 }

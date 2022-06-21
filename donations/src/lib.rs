@@ -116,6 +116,9 @@ pub mod pallet {
         // A standard AccountIdToMultiLocation converter
         type AccountIdToMultiLocation: Convert<Self::AccountId, MultiLocation>;
 
+        // Weight info
+        type WeightInfo: WeightInfo;
+
         // weight of an xcm transaction to send to sequester
         #[pallet::constant]
         type SequesterTransferFee: Get<BalanceOf<Self>>;
