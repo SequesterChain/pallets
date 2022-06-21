@@ -47,31 +47,29 @@ pub trait WeightInfo {
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn submit_unsigned() -> Weight {
-        (9_477_000 as Weight)
+        (10_000_000 as Weight)
             .saturating_add(T::DbWeight::get().reads(1 as Weight))
             .saturating_add(T::DbWeight::get().writes(2 as Weight))
     }
     fn xcm_transfer_to_sequester() -> Weight {
-        (10_722_000 as Weight)
+        (11_000_000 as Weight)
     }
     fn spend_funds() -> Weight {
-        (6_077_000 as Weight) // Standard Error: 1_000
-            .saturating_add(T::DbWeight::get().reads(1 as Weight))
+        (6_000_000 as Weight).saturating_add(T::DbWeight::get().reads(1 as Weight))
     }
 }
 
 // For backwards compatibility and tests
 impl WeightInfo for () {
     fn submit_unsigned() -> Weight {
-        (9_477_000 as Weight)
+        (10_000_000 as Weight)
             .saturating_add(RocksDbWeight::get().reads(1 as Weight))
             .saturating_add(RocksDbWeight::get().writes(2 as Weight))
     }
     fn xcm_transfer_to_sequester() -> Weight {
-        (10_722_000 as Weight)
+        (11_000_000 as Weight)
     }
     fn spend_funds() -> Weight {
-        (6_077_000 as Weight) // Standard Error: 1_000
-            .saturating_add(RocksDbWeight::get().reads(1 as Weight))
+        (6_000_000 as Weight).saturating_add(RocksDbWeight::get().reads(1 as Weight))
     }
 }
