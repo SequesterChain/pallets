@@ -62,11 +62,11 @@
 use crate::Config;
 use frame_system::EventRecord;
 use pallet_treasury::BalanceOf;
-use sp_std::vec::Vec;
+use sp_std::{boxed::Box, vec::Vec};
 pub trait FeeCalculator<T: Config> {
-    fn calculate_fees_from_events(
-        events: Vec<
-            EventRecord<<T as frame_system::Config>::Event, <T as frame_system::Config>::Hash>,
-        >,
-    ) -> BalanceOf<T>;
+	fn calculate_fees_from_events(
+		events: Vec<
+			Box<EventRecord<<T as frame_system::Config>::Event, <T as frame_system::Config>::Hash>>,
+		>,
+	) -> BalanceOf<T>;
 }
