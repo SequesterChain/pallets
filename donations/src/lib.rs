@@ -55,10 +55,6 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-mod fees;
-
-pub use fees::*;
-
 pub mod weights;
 pub use weights::WeightInfo;
 
