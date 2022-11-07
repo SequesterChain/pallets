@@ -29,8 +29,7 @@
 //
 // 1) An off-chain worker will run each block. Since fees are customizable on substrate chains,
 // each chain will need custom logic to sum the txn fees. Thus, each block, an offchain
-// worker will iterate through on-chain events and call the FeeCalculator logic passed
-// into the pallet, where txn fees will be parsed on a per-event basis. At the end of each block,
+// worker will iterate through on-chain events, where txn fees will be parsed on a per-event basis. At the end of each block,
 // the sum of txn fees caculated will be added to an off-chain variable storing cumulative txn
 // fees on-chain
 //
@@ -42,7 +41,7 @@
 // trait, which will check the on-chain storage for queued txn fees. If txn fees are queued,
 // they will be subsumed into a special Sequester account, and an XCM will be constructed sending
 // the queued funds to the Sequester chain.
-
+#![feature(more_qualified_paths)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use pallet::*;
@@ -56,10 +55,6 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-mod fees;
-
-pub use fees::*;
-
 pub mod weights;
 pub use weights::WeightInfo;
 
@@ -67,13 +62,18 @@ pub use weights::WeightInfo;
 pub mod pallet {
     use super::*;
 
-    use frame_support::traits::{Currency, Get, Imbalance};
-    use frame_support::{pallet_prelude::*, weights::Weight, PalletId};
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{Currency, Get, Imbalance},
+        weights::{PostDispatchInfo, Weight},
+        PalletId,
+    };
     use frame_system::{
         offchain::{SendTransactionTypes, SubmitTransaction},
         pallet_prelude::*,
         RawOrigin,
     };
+    use pallet_transaction_payment::OnChargeTransaction;
     use pallet_treasury::{BalanceOf, PositiveImbalanceOf};
     use sp_runtime::{
         offchain::{
@@ -89,11 +89,13 @@ pub mod pallet {
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
 
+    pub const BASE_CREATE_GAS: Weight = Weight::zero();
+
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
     pub trait Config:
         frame_system::Config
-        + pallet_balances::Config
+        + pallet_transaction_payment::Config
         + pallet_treasury::Config
         + pallet_xcm::Config
         + SendTransactionTypes<Call<Self>>
@@ -103,12 +105,11 @@ pub mod pallet {
 
         // Type used to convert generic frame events into the
         // event type specifically emitted by the balances pallet
-        type BalancesEvent: From<<Self as frame_system::Config>::Event>
-            + TryInto<pallet_balances::Event<Self>>;
+        type TransactionFeeEvent: From<<Self as frame_system::Config>::Event>
+            + TryInto<pallet_transaction_payment::Event<Self>>;
 
-        // A struct that calculates your chain’s transaction fees from
-        // the frame_events in a given block
-        type FeeCalculator: FeeCalculator<Self>;
+        type BalanceConverter: From<<<Self as pallet_transaction_payment::Config>::OnChargeTransaction as OnChargeTransaction<Self>>::Balance>
+			+ Into<BalanceOf<Self>>;
 
         // A standard AccountIdToMultiLocation converter
         type AccountIdToMultiLocation: Convert<Self::AccountId, MultiLocation>;
@@ -216,19 +217,35 @@ pub mod pallet {
         /// temporarily stored in this account
         pub fn get_sequester_account_id() -> T::AccountId {
             let seq_pallet_id: PalletId = PalletId(*b"py/sqstr");
-            seq_pallet_id.into_account()
+            seq_pallet_id.into_account_truncating()
         }
 
-        /// Calculate the fees for a given block.
-        /// since fees are customizable on Substrate chains and each chain has control over where fees are sent
-        /// via the pallet_transaction_payment pallet, each chain also will have to implement its own custom logic
-        /// re: summing the transaction fees. This logic is passed in through the FeeCalculator struct
+        /// Calculate the fees for a given block
         fn calculate_fees_for_block() -> BalanceOf<T> {
             let events = <frame_system::Pallet<T>>::read_events_no_consensus();
 
-            let block_fee_sum = <T as Config>::FeeCalculator::calculate_fees_from_events(events);
+            let filtered_events = events.into_iter().filter_map(|event_record| {
+                let balances_event = <T as Config>::TransactionFeeEvent::from(event_record.event);
+                balances_event.try_into().ok()
+            });
 
-            block_fee_sum
+            let mut curr_block_fee_sum: BalanceOf<T> = Zero::zero();
+            for filtered_event in filtered_events {
+                match filtered_event {
+                    <pallet_transaction_payment::Event<T>>::TransactionFeePaid {
+                        who: _,
+                        actual_fee,
+                        tip: _,
+                    } => {
+                        let converted_fee = <T as Config>::BalanceConverter::from(actual_fee);
+                        curr_block_fee_sum =
+                            (curr_block_fee_sum).saturating_add(converted_fee.into());
+                    }
+                    _ => {}
+                }
+            }
+
+            curr_block_fee_sum
         }
 
         /// Updates the offchain storage variable tracking cumulative txn fees by safely adding
@@ -382,7 +399,10 @@ pub mod pallet {
             FeesToSend::<T>::set(pending_fees.saturating_add(amount.into()));
 
             Self::deposit_event(Event::TxnFeeQueued(amount));
-            Ok(None.into())
+            Ok(PostDispatchInfo {
+                actual_weight: Some(BASE_CREATE_GAS),
+                pays_fee: Pays::No,
+            })
         }
 
         /// The extrinsic for sending funds to sequester via an XCM call. The present XCM call is a placeholder
@@ -408,7 +428,7 @@ pub mod pallet {
             let send_amount_u128 =
                 TryInto::<u128>::try_into(send_amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
 
-            let weight = T::SequesterTransferWeight::get();
+            // let weight = T::SequesterTransferWeight::get();
 
             let mut assets = MultiAssets::new();
 
@@ -435,7 +455,7 @@ pub mod pallet {
                 WithdrawAsset(assets),
                 InitiateReserveWithdraw {
                     assets: All.into(),
-                    reserve: reserve,
+                    reserve,
                     xcm: Xcm(vec![
                         BuyExecution {
                             fees: fee_asset,
@@ -444,7 +464,7 @@ pub mod pallet {
                         DepositAsset {
                             assets: All.into(),
                             max_assets: 2,
-                            beneficiary: beneficiary,
+                            beneficiary,
                         },
                     ]),
                 },
@@ -453,12 +473,15 @@ pub mod pallet {
             let _outcome = <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
                 origin_location,
                 msg,
-                weight,
-                weight,
+                0,
+                0,
             );
 
             Self::deposit_event(Event::SequesterTransferSuccess(amount));
-            Ok(None.into())
+            Ok(PostDispatchInfo {
+                actual_weight: Some(BASE_CREATE_GAS),
+                pays_fee: Pays::No,
+            })
         }
     }
 }
