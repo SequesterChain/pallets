@@ -366,7 +366,7 @@ pub mod pallet {
 
                 let sequester_bal = T::Currency::free_balance(&Self::get_sequester_account_id());
 
-                Self::xcm_transfer_to_sequester(
+                let _ = Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
                     sequester_bal,
                 );
@@ -441,9 +441,8 @@ pub mod pallet {
 
             match result {
                 Err(err) => log::warn!("Failed to teleport assets: {:?}", err),
-                _ => (),
+                _ => Self::deposit_event(Event::SequesterTransferSuccess(amount)),
             }
-            Self::deposit_event(Event::SequesterTransferSuccess(amount));
 
             Ok(PostDispatchInfo {
                 actual_weight: Some(BASE_CREATE_GAS),
