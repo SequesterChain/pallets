@@ -83,8 +83,10 @@ pub mod pallet {
         traits::{AccountIdConversion, Convert, Saturating, Zero},
         Percent,
     };
-    use sp_std::vec;
+
+    use sp_std::{boxed::Box, vec};
     use xcm::latest::prelude::*;
+    use xcm_executor::traits::WeightBounds;
 
     const DB_KEY_SUM: &[u8] = b"donations/txn-fee-sum";
     const DB_LOCK: &[u8] = b"donations/txn-sum-lock";
@@ -119,11 +121,10 @@ pub mod pallet {
 
         // weight of an xcm transaction to send to sequester
         #[pallet::constant]
-        type SequesterTransferFee: Get<BalanceOf<Self>>;
+        type SequesterTransferMinimum: Get<BalanceOf<Self>>;
 
-        // weight of an xcm transaction to send to sequester
-        #[pallet::constant]
-        type SequesterTransferWeight: Get<Weight>;
+        // weigher that weighs relevant XCM calls
+        type Weigher: WeightBounds<<Self as frame_system::Config>::Call>;
 
         // The priority of the unsigned transactions submitted by
         // the Sequester pallet
@@ -139,11 +140,6 @@ pub mod pallet {
         // from your chain’s treasury to the Sequester chain
         #[pallet::constant]
         type TxnFeePercentage: Get<Percent>;
-
-        // The MultiLocation representing where the reserve funds
-        // are stored (e.g Statemine/Statemint)
-        #[pallet::constant]
-        type ReserveMultiLocation: Get<MultiLocation>;
 
         // The MultiLocation representing where the funds will be going
         // e.g (sequester kusama chain or sequester polkadot chain)
@@ -188,6 +184,7 @@ pub mod pallet {
         InvalidXCMExtrinsicCall,
         FeeConvertFailed,
         XcmExecutionFailed,
+        UnweighableMessage,
     }
 
     #[pallet::hooks]
@@ -353,7 +350,7 @@ pub mod pallet {
         ) {
             let fees_to_send = Self::fees_to_send();
 
-            let transfer_fee = T::SequesterTransferFee::get();
+            let transfer_fee = T::SequesterTransferMinimum::get();
 
             // valid fees to send
             if fees_to_send > transfer_fee && *budget_remaining >= fees_to_send {
@@ -369,7 +366,7 @@ pub mod pallet {
 
                 let sequester_bal = T::Currency::free_balance(&Self::get_sequester_account_id());
 
-                let _ = Self::xcm_transfer_to_sequester(
+                Self::xcm_transfer_to_sequester(
                     RawOrigin::Signed(sequester_acc).into(),
                     sequester_bal,
                 );
@@ -412,72 +409,42 @@ pub mod pallet {
             origin: OriginFor<T>,
             amount: BalanceOf<T>,
         ) -> DispatchResultWithPostInfo {
-            let who = ensure_signed(origin)?;
+            ensure_signed(origin.clone())?;
 
-            let fee = T::SequesterTransferFee::get();
+            let fee = T::SequesterTransferMinimum::get();
 
             frame_support::ensure!(amount >= fee, Error::<T>::InvalidXCMExtrinsicCall);
 
-            let fee_u128 =
-                TryInto::<u128>::try_into(fee).map_err(|_| Error::<T>::FeeConvertFailed)?;
-
-            let send_amount = amount.saturating_sub(fee);
-
-            let origin_location = T::AccountIdToMultiLocation::convert(who.clone());
-
             let send_amount_u128 =
-                TryInto::<u128>::try_into(send_amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
+                TryInto::<u128>::try_into(amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
 
-            // let weight = T::SequesterTransferWeight::get();
+            let dest = Box::new(xcm::VersionedMultiLocation::V1(
+                T::SequesterMultiLocation::get(),
+            ));
 
-            let mut assets = MultiAssets::new();
+            let sequester_acc = Self::get_sequester_account_id();
 
-            let transfer_asset = MultiAsset {
-                id: AssetId::Concrete(MultiLocation::new(1, Junctions::Here)),
-                fun: Fungibility::Fungible(send_amount_u128),
-            };
+            let beneficiary = Box::new(xcm::VersionedMultiLocation::V1(
+                T::AccountIdToMultiLocation::convert(sequester_acc.clone()),
+            ));
 
-            let fee_asset = MultiAsset {
-                id: AssetId::Concrete(MultiLocation::new(1, Junctions::Here)),
-                fun: Fungibility::Fungible(fee_u128),
-            };
-            assets.push(transfer_asset.clone());
-            assets.push(fee_asset.clone());
-
-            // Please note this is a placeholder XCM call that will be formalized
-            // with proper event handling once the Sequester chain is built
-
-            let reserve: MultiLocation = T::ReserveMultiLocation::get();
-
-            let beneficiary: MultiLocation = T::SequesterMultiLocation::get();
-
-            let msg: xcm::v2::Xcm<<T as frame_system::Config>::Call> = Xcm(vec![
-                WithdrawAsset(assets),
-                InitiateReserveWithdraw {
-                    assets: All.into(),
-                    reserve,
-                    xcm: Xcm(vec![
-                        BuyExecution {
-                            fees: fee_asset,
-                            weight_limit: Unlimited,
-                        },
-                        DepositAsset {
-                            assets: All.into(),
-                            max_assets: 2,
-                            beneficiary,
-                        },
-                    ]),
-                },
-            ]);
-
-            let _outcome = <T as pallet_xcm::Config>::XcmExecutor::execute_xcm_in_credit(
-                origin_location,
-                msg,
-                0,
-                0,
+            let assets = Box::new(
+                vec![MultiAsset {
+                    id: AssetId::Concrete(MultiLocation::new(1, Junctions::Here)),
+                    fun: Fungibility::Fungible(send_amount_u128),
+                }]
+                .into(),
             );
 
+            let result =
+                <pallet_xcm::Pallet<T>>::teleport_assets(origin, dest, beneficiary, assets, 0);
+
+            match result {
+                Err(err) => log::warn!("Failed to teleport assets: {:?}", err),
+                _ => (),
+            }
             Self::deposit_event(Event::SequesterTransferSuccess(amount));
+
             Ok(PostDispatchInfo {
                 actual_weight: Some(BASE_CREATE_GAS),
                 pays_fee: Pays::No,
