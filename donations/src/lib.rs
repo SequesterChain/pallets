@@ -123,9 +123,6 @@ pub mod pallet {
         #[pallet::constant]
         type SequesterTransferMinimum: Get<BalanceOf<Self>>;
 
-        // weigher that weighs relevant XCM calls
-        type Weigher: WeightBounds<<Self as frame_system::Config>::Call>;
-
         // The priority of the unsigned transactions submitted by
         // the Sequester pallet
         #[pallet::constant]
