@@ -438,7 +438,7 @@ pub mod pallet {
             );
 
             let result = 
-                <pallet_xcm::Pallet<T>>::reserve_transfer_assets(dest, beneficiary, assets, 0);
+                <pallet_xcm::Pallet<T>>::reserve_transfer_assets(origin, dest, beneficiary, assets, 0);
 
             match result {
                 Err(err) => log::warn!("Failed to teleport assets: {:?}", err),
