@@ -141,6 +141,11 @@ pub mod pallet {
         // e.g (sequester kusama chain or sequester polkadot chain)
         #[pallet::constant]
         type SequesterMultiLocation: Get<MultiLocation>;
+
+        // The MultiLocation representing what funds you are sending
+        // from your treasury
+        #[pallet::constant]
+        type TokenToSendMultiLocation: Get<MultiLocation>;
     }
 
     // The next block where an unsigned transaction will be considered valid
@@ -426,14 +431,14 @@ pub mod pallet {
 
             let assets = Box::new(
                 vec![MultiAsset {
-                    id: AssetId::Concrete(MultiLocation::new(1, Junctions::Here)),
+                    id: AssetId::Concrete(T::TokenToSendMultiLocation::get()),
                     fun: Fungibility::Fungible(send_amount_u128),
                 }]
                 .into(),
             );
 
-            let result =
-                <pallet_xcm::Pallet<T>>::teleport_assets(origin, dest, beneficiary, assets, 0);
+            let result = 
+                <pallet_xcm::Pallet<T>>::reserve_transfer_assets(origin, dest, beneficiary, assets, 0);
 
             match result {
                 Err(err) => log::warn!("Failed to teleport assets: {:?}", err),
