@@ -93,6 +93,13 @@ pub mod pallet {
     pub const BASE_CREATE_GAS: Weight = Weight::zero();
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
+    /// <HB SBP Milestone 1 Review:
+    /// This implementation is not incorrect, however it is somehow restrictive from the runtime development perspective.
+    /// The parachain implementing this pallet is forced to have the three pallets coupled to this pallet implemented in their runtime.
+    /// Even if this three pallets are the most adopted and used over the parachains,
+    /// this hard requirement restricts some flexibility like choosing a differet transaction payment api or a custom treasury system.
+    ///
+    /// HB SBP>
     #[pallet::config]
     pub trait Config:
         frame_system::Config
@@ -198,11 +205,21 @@ pub mod pallet {
 
             let percent_to_send = T::TxnFeePercentage::get();
 
+            /// <HB SBP Milestone 1 Review:
+            /// Unsafe math percentage operation
+            /// I recommend using arithmetic primitives to have safe operations: https://github.com/paritytech/substrate/blob/master/primitives/arithmetic/src/per_things.rs
+            ///
+            /// HB SBP>
             block_fee_sum = percent_to_send * block_fee_sum;
 
             Self::update_offchain_storage(block_fee_sum);
 
             // send fees to sequester
+            /// <HB SBP Milestone 1 Review:
+            /// Unsafe math percentage operation
+            /// I recommend using arithmetic primitives to have safe operations: https://github.com/paritytech/substrate/blob/master/primitives/arithmetic/src/per_things.rs
+            ///
+            /// HB SBP>
             if (block_number % T::OnChainUpdateInterval::get()).is_zero() {
                 Self::queue_pending_txn_fees_onchain(block_number);
             }
@@ -218,6 +235,15 @@ pub mod pallet {
             seq_pallet_id.into_account_truncating()
         }
 
+        /// <HB SBP Milestone 1 Review:
+        /// Even if this implementation works fine (with the mentioned restrictions for the Config section), calculating fees based on reading events
+        ///  may not be the best solution since it's a very sensible implementation to have breaking changes in the medium term.
+        ///
+        /// It is unlikely for now, but if any specs is changed on the events from the transaction payment pallet
+        /// around fees, this would cause an issue if the pallet code if it does not get updated on time.
+        ///
+        /// I would try finding alternatives around the Block abstraction and the available runtime apis for the transaction payment provider.
+        /// HB SBP Milestone 1 Review>
         /// Calculate the fees for a given block
         fn calculate_fees_for_block() -> BalanceOf<T> {
             let events = <frame_system::Pallet<T>>::read_events_no_consensus();
@@ -306,6 +332,13 @@ pub mod pallet {
     /// Validation logic from unsigned transactions. In order to make sure that malicious txns
     /// can't get through, we discard any Transactions not from a local OCW and make sure that only
     /// 1 txn can be submitted every OnChainUpdateInterval blocks
+    ///
+    /// <HB SBP Milestone 1 Review:
+    /// As it is stated in the offchain worker documentation (https://docs.substrate.io/tutorials/work-with-pallets/add-offchain-workers/#working-with-unsigned-transactions),
+    /// "there's significant risk in allowing unsigned transactions to modify the chain state. Unsigned transactions represent a potential attack vector that a malicious user could exploit."
+    /// So, matching the source is "ok" but i would add at least one more check,
+    /// for example during the fees calculation process instead of just storing only the fee, a merkle tree could be implemented to validate the fees are not manipulated from a bad actor.
+    /// HB SBP>
     #[pallet::validate_unsigned]
     impl<T: Config> ValidateUnsigned for Pallet<T> {
         type Call = Call<T>;
@@ -355,6 +388,10 @@ pub mod pallet {
 
             // valid fees to send
             if fees_to_send > transfer_fee && *budget_remaining >= fees_to_send {
+                /// <HB SBP Milestone 1 Review:
+                /// Unsafe math operation: use saturating_sub
+                ///
+                /// HB SBP>
                 *budget_remaining -= fees_to_send;
 
                 let sequester_acc = Self::get_sequester_account_id();
@@ -372,6 +409,11 @@ pub mod pallet {
                     sequester_bal,
                 );
             }
+
+            /// <HB SBP Milestone 1 Review:
+            /// Unsafe math operation: use saturating_add
+            ///
+            /// HB SBP>
             *total_weight += <T as Config>::WeightInfo::spend_funds();
         }
     }
@@ -389,6 +431,10 @@ pub mod pallet {
             ensure_none(origin)?;
 
             // update storage to reject unsigned transactions until OnChainUpdateInterval blocks pass
+            /// <HB SBP Milestone 1 Review:
+            /// Unsafe math operation: use saturating_sub
+            ///
+            /// HB SBP>
             <NextUnsignedAt<T>>::put(block_num + T::OnChainUpdateInterval::get());
 
             let pending_fees = Self::fees_to_send();
@@ -419,12 +465,24 @@ pub mod pallet {
             let send_amount_u128 =
                 TryInto::<u128>::try_into(amount).map_err(|_| Error::<T>::FeeConvertFailed)?;
 
+            /// <HB SBP Milestone 1 Review:
+            /// CRITICAL
+            /// This version has been deprecated and it is not available anymore once XCM v3 lands on the relay chains.
+            /// It is safe to assume that parachains might use different versions of XCM,
+            /// so forcing one version only might cause conflicts if the XCM version of the runtime is different than the hardcoded one.
+            /// HB SBP>
             let dest = Box::new(xcm::VersionedMultiLocation::V1(
                 T::SequesterMultiLocation::get(),
             ));
 
             let sequester_acc = Self::get_sequester_account_id();
 
+            /// <HB SBP Milestone 1 Review:
+            /// CRITICAL
+            /// This version has been deprecated and it is not available anymore once XCM v3 lands on the relay chains.
+            /// It is safe to assume that parachains might use different versions of XCM,
+            /// so forcing one version only might cause conflicts if the XCM version of the runtime is different than the hardcoded one.
+            /// HB SBP>
             let beneficiary = Box::new(xcm::VersionedMultiLocation::V1(
                 T::AccountIdToMultiLocation::convert(sequester_acc.clone()),
             ));
@@ -437,8 +495,13 @@ pub mod pallet {
                 .into(),
             );
 
-            let result = 
-                <pallet_xcm::Pallet<T>>::reserve_transfer_assets(origin, dest, beneficiary, assets, 0);
+            let result = <pallet_xcm::Pallet<T>>::reserve_transfer_assets(
+                origin,
+                dest,
+                beneficiary,
+                assets,
+                0,
+            );
 
             match result {
                 Err(err) => log::warn!("Failed to teleport assets: {:?}", err),
